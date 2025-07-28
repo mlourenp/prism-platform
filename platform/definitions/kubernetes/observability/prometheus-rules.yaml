@@ -1,0 +1,235 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: prism-platform-alerts
+  namespace: monitoring
+  labels:
+    app: prometheus-operator
+    release: prometheus
+spec:
+  groups:
+  - name: kubernetes-resources
+    rules:
+    - alert: KubernetesPodResourcesHighUsage
+      expr: container_memory_usage_bytes{namespace="prism-platform"} / container_spec_memory_limit_bytes{namespace="prism-platform"} > 0.85
+      for: 10m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Memory usage exceeding 85% threshold"
+        description: "Container {{ $labels.container }} in pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is using {{ printf \"%.2f\" $value }}% of its memory limit for over 10 minutes."
+        runbook_url: "https://docs.prism.io/runbooks/high-memory-usage"
+
+    - alert: KubernetesPodResourcesCritical
+      expr: container_memory_usage_bytes{namespace="prism-platform"} / container_spec_memory_limit_bytes{namespace="prism-platform"} > 0.95
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Memory usage near limit (>95%)"
+        description: "Container {{ $labels.container }} in pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is using {{ printf \"%.2f\" $value }}% of its memory limit for over 5 minutes."
+        runbook_url: "https://docs.prism.io/runbooks/high-memory-usage"
+
+    - alert: KubernetesPodCPUThrottling
+      expr: rate(container_cpu_cfs_throttled_seconds_total{namespace="prism-platform"}[5m]) / rate(container_cpu_cfs_periods_total{namespace="prism-platform"}[5m]) > 0.8
+      for: 15m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Container CPU throttling"
+        description: "Container {{ $labels.container }} in pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is experiencing CPU throttling of {{ printf \"%.2f\" $value }}% for over 15 minutes."
+        runbook_url: "https://docs.prism.io/runbooks/cpu-throttling"
+
+  - name: application-health
+    rules:
+    - alert: APIHighErrorRate
+      expr: sum(rate(http_requests_total{service="prism-platform-api",status=~"5.."}[5m])) / sum(rate(http_requests_total{service="prism-platform-api"}[5m])) > 0.05
+      for: 3m
+      labels:
+        severity: critical
+      annotations:
+        summary: "API error rate exceeding 5%"
+        description: "The Prism Platform API is experiencing an error rate of {{ printf \"%.2f\" $value }}% for over 3 minutes."
+        runbook_url: "https://docs.prism.io/runbooks/api-error-rate"
+
+    - alert: APIHighLatency
+      expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{service="prism-platform-api"}[5m])) by (le)) > 0.5
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "API P95 latency above 500ms"
+        description: "The Prism Platform API has a 95th percentile latency of {{ printf \"%.2f\" $value }}s for over 5 minutes."
+        runbook_url: "https://docs.prism.io/runbooks/api-latency"
+
+    - alert: CellClaimNotReady
+      expr: kube_cellclaim_status_phase{phase!="Ready"} == 1
+      for: 10m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Cell claim not in Ready state"
+        description: "Cell claim {{ $labels.cellclaim }} is in {{ $labels.phase }} state for over 10 minutes."
+        runbook_url: "https://docs.prism.io/runbooks/cell-claim-not-ready"
+
+  - name: database-health
+    rules:
+    - alert: DatabaseHighConnectionUsage
+      expr: sum(pg_stat_activity_count{datname=~"prism_platform.*"}) / pg_settings_max_connections{datname=~"prism_platform.*"} > 0.8
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Database connection pool near capacity"
+        description: "Database {{ $labels.datname }} is using {{ printf \"%.2f\" $value }}% of available connections for over 5 minutes."
+        runbook_url: "https://docs.prism.io/runbooks/db-connection-pool"
+
+    - alert: SlowDatabaseQueries
+      expr: pg_stat_activity_max_tx_duration{datname=~"prism_platform.*"} > 120
+      for: 2m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Slow database queries detected"
+        description: "Database {{ $labels.datname }} has queries running for over 2 minutes."
+        runbook_url: "https://docs.prism.io/runbooks/slow-queries"
+
+  - name: workload-processing
+    rules:
+    - alert: WorkloadProcessingDelay
+      expr: time() - max(last_successful_workload_processing_timestamp) > 3600
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Workload processing delayed"
+        description: "No successful workload processing has occurred in the last hour."
+        runbook_url: "https://docs.prism.io/runbooks/workload-processing-delay"
+
+    - alert: WorkloadProcessingHighErrorRate
+      expr: sum(rate(workload_processing_errors_total[15m])) / sum(rate(workload_processing_total[15m])) > 0.1
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Workload processing high error rate"
+        description: "Workload processing is experiencing a {{ printf \"%.2f\" $value }}% error rate over the last 15 minutes."
+        runbook_url: "https://docs.prism.io/runbooks/workload-processing-errors"
+
+  - name: optimization-service
+    rules:
+    - alert: OptimizationServiceLatency
+      expr: histogram_quantile(0.95, sum(rate(optimization_processing_duration_seconds_bucket[5m])) by (le)) > 5
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Optimization service high latency"
+        description: "The optimization service has a 95th percentile latency of {{ printf \"%.2f\" $value }}s for over 5 minutes."
+        runbook_url: "https://docs.prism.io/runbooks/optimization-latency"
+
+    - alert: RecommendationFailureRate
+      expr: sum(rate(recommendation_generation_errors_total[5m])) / sum(rate(recommendation_generation_total[5m])) > 0.05
+      for: 3m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Recommendation engine high failure rate"
+        description: "The recommendation engine is experiencing a {{ printf \"%.2f\" $value }}% failure rate over the last 5 minutes."
+        runbook_url: "https://docs.prism.io/runbooks/recommendation-failures"
+
+  - name: system-health
+    rules:
+    - alert: NodeHighLoad
+      expr: instance:node_load1_per_cpu:ratio > 1.5
+      for: 10m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High system load on node"
+        description: "Node {{ $labels.instance }} has a load average of {{ printf \"%.2f\" $value }} per CPU core for over 10 minutes."
+        runbook_url: "https://docs.prism.io/runbooks/high-node-load"
+
+    - alert: NodeHighMemoryUsage
+      expr: (node_memory_MemTotal_bytes - (node_memory_MemFree_bytes + node_memory_Buffers_bytes + node_memory_Cached_bytes)) / node_memory_MemTotal_bytes > 0.9
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High memory usage on node"
+        description: "Node {{ $labels.instance }} has memory usage of {{ printf \"%.2f\" $value }}% for over 5 minutes."
+        runbook_url: "https://docs.prism.io/runbooks/high-node-memory"
+
+    - alert: NodeDiskSpaceFilling
+      expr: predict_linear(node_filesystem_free_bytes{fstype!~"tmpfs|squashfs"}[6h], 24 * 3600) < 0
+      for: 15m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Disk space predicted to fill within 24 hours"
+        description: "Node {{ $labels.instance }} disk {{ $labels.device }} mounted on {{ $labels.mountpoint }} is predicted to run out of space within 24 hours."
+        runbook_url: "https://docs.prism.io/runbooks/disk-space-prediction"
+
+  - name: prometheus-health
+    rules:
+    - alert: PrometheusHighMemoryUsage
+      expr: container_memory_usage_bytes{pod=~"prometheus-.*", container="prometheus"} / container_spec_memory_limit_bytes{pod=~"prometheus-.*", container="prometheus"} > 0.85
+      for: 10m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Prometheus high memory usage"
+        description: "Prometheus is using {{ printf \"%.2f\" $value }}% of its memory limit for over 10 minutes."
+        runbook_url: "https://docs.prism.io/runbooks/prometheus-memory-usage"
+
+    - alert: PrometheusScrapeErrors
+      expr: sum(rate(prometheus_target_scrapes_sample_exceeded_total[5m])) > 0
+      for: 10m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Prometheus scrape errors detected"
+        description: "Prometheus is experiencing scrape errors. Check prometheus logs and target configurations."
+        runbook_url: "https://docs.prism.io/runbooks/prometheus-scrape-errors"
+
+  - name: alerting-health
+    rules:
+    - alert: AlertmanagerClusterFailure
+      expr: alertmanager_cluster_members < 3
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Alertmanager cluster degraded"
+        description: "Alertmanager cluster has {{ $value }} members out of 3 expected."
+        runbook_url: "https://docs.prism.io/runbooks/alertmanager-cluster"
+
+    - alert: AlertmanagerConfigurationReloadFailure
+      expr: alertmanager_config_last_reload_successful == 0
+      for: 10m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Alertmanager config reload failure"
+        description: "Alertmanager instance {{ $labels.instance }} failed to reload its configuration."
+        runbook_url: "https://docs.prism.io/runbooks/alertmanager-config-reload"
+
+---
+# Implementation instructions:
+#
+# 1. Apply the alerts configuration:
+#    kubectl apply -f kubernetes/observability/prometheus-rules.yaml
+#
+# 2. Verify that the alerts have been loaded into Prometheus:
+#    kubectl port-forward svc/prometheus-server -n monitoring 9090:9090
+#    Visit http://localhost:9090/rules to see the configured alerts
+#
+# 3. Test alert functionality:
+#    Visit http://localhost:9090/alerts to see the current state of alerts
+#
+# 4. Configure alert receivers in Alertmanager:
+#    Update alertmanager-config.yaml with appropriate notification channels
+#    (Slack, PagerDuty, email, etc.)
+#
+# 5. Ensure your applications are properly instrumented to expose the metrics
+#    used in these alert rules.

@@ -1,0 +1,60 @@
+apiVersion: prism.io/v1alpha1
+kind: eBPFObservabilityStack
+metadata:
+  name: production-ebpf-stack
+  namespace: default
+spec:
+  clusterName: "prism-ebpf-stack"
+  clusterEndpoint: "kubernetes.default.svc"
+  
+  # Enable all eBPF components
+  cilium:
+    version: "1.15.3"
+    enableHubble: true
+    enableUI: true
+    enableClusterMesh: false  # Single cluster for now
+    enableBandwidthManager: true
+  
+  tetragon:
+    version: "0.10.0"
+    enableProcessCredentials: true
+    enableProcessNamespaces: true
+    exportStdout: true
+  
+  pixie:
+    version: "0.12.0"
+    deployKey: ""  # Will be set if available
+    apiKey: ""     # Will be set if available  
+    dataRetention: "7d"
+    dataAccess: "Full"
+    enableAutoInstrumentation: true
+  
+  kepler:
+    version: "0.7.11"
+    enableGPUMonitoring: true
+    enableBPFProfiling: true
+    metricsInterval: "30s"
+    enableCarbonFootprint: true
+    powerModel: "rapl"
+  
+  falco:
+    version: "4.2.4"
+    enableWebUI: true
+    enableGRPC: true
+    enableHTTP: true
+    ruleFiles:
+    - "falco_rules.yaml"
+    - "k8s_audit_rules.yaml"
+  
+  # Observability Integration
+  observability:
+    enablePrometheusIntegration: true
+    enableGrafanaDashboards: true
+    enableAlerting: true
+  
+  # Sustainability Features
+  sustainability:
+    enableCarbonTracking: true
+    enableEnergyOptimization: true
+    carbonThresholdKgPerHour: 0.5
+    targetPUE: 1.3 

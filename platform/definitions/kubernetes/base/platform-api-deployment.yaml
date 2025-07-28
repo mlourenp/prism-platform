@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-api
+  namespace: prism-platform
+  labels:
+    app: prism-platform
+    component: platform-api
+    cell: logic-cell
+    prism.io/platform: "management-plane"
+    prism.io/cell-type: "logic"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: prism-platform
+      component: platform-api
+  template:
+    metadata:
+      labels:
+        app: prism-platform
+        component: platform-api
+        prism.io/cell-type: "logic"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: platform-api
+        image: nginx:alpine
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: http
+        - containerPort: 9090
+          name: metrics
+        env:
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: PLATFORM_VERSION
+          value: "v1.2"
+        - name: CELL_TYPE
+          value: "logic"
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+      serviceAccountName: prism-platform-api
+      securityContext:
+        fsGroup: 1000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: platform-api
+  namespace: prism-platform
+  labels:
+    app: prism-platform
+    component: platform-api
+spec:
+  selector:
+    app: prism-platform
+    component: platform-api
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8080
+  - name: metrics
+    port: 9090
+    targetPort: 9090
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prism-platform-api
+  namespace: prism-platform
+  labels:
+    app: prism-platform
+    component: platform-api

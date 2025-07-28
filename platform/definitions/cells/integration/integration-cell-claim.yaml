@@ -1,0 +1,20 @@
+apiVersion: saas.example.com/v1alpha1
+kind: CellClaim
+metadata:
+  name: integration-cell
+  namespace: prism-system
+  labels:
+    prism.io/cell-type: integration
+spec:
+  cellType: integration
+  region: us-east-1
+  cloudProvider: aws
+  priority: 7
+  resources:
+    cpu: "2"
+    memory: "8Gi"
+    storage: "100Gi"
+  compositionSelector:
+    matchLabels:
+      provider: aws
+      cellType: integration

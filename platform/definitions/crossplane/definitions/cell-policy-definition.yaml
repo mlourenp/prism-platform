@@ -1,0 +1,444 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: cellpolicies.saas.example.com
+spec:
+  group: saas.example.com
+  names:
+    kind: CellPolicy
+    plural: cellpolicies
+  claimNames:
+    kind: CellPolicyClaim
+    plural: cellpolicyclaims
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                cellSelector:
+                  type: object
+                  properties:
+                    matchLabels:
+                      type: object
+                      additionalProperties:
+                        type: string
+                    matchExpressions:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          key:
+                            type: string
+                          operator:
+                            type: string
+                            enum: [In, NotIn, Exists, DoesNotExist]
+                          values:
+                            type: array
+                            items:
+                              type: string
+                        required: [key, operator]
+                security:
+                  type: object
+                  properties:
+                    podSecurityPolicies:
+                      type: object
+                      properties:
+                        privileged:
+                          type: boolean
+                          default: false
+                        allowPrivilegeEscalation:
+                          type: boolean
+                          default: false
+                        readOnlyRootFilesystem:
+                          type: boolean
+                          default: true
+                        runAsNonRoot:
+                          type: boolean
+                          default: true
+                        runAsUser:
+                          type: object
+                          properties:
+                            rule:
+                              type: string
+                              enum: [MustRunAs, MustRunAsNonRoot, RunAsAny]
+                            ranges:
+                              type: array
+                              items:
+                                type: object
+                                properties:
+                                  min:
+                                    type: integer
+                                  max:
+                                    type: integer
+                                required: [min, max]
+                          required: [rule]
+                        seLinux:
+                          type: object
+                          properties:
+                            rule:
+                              type: string
+                              enum: [MustRunAs, RunAsAny]
+                            seLinuxOptions:
+                              type: object
+                              properties:
+                                user:
+                                  type: string
+                                role:
+                                  type: string
+                                type:
+                                  type: string
+                                level:
+                                  type: string
+                          required: [rule]
+                        allowedCapabilities:
+                          type: array
+                          items:
+                            type: string
+                        forbiddenSyscalls:
+                          type: array
+                          items:
+                            type: string
+                      required: []
+                    networkPolicies:
+                      type: object
+                      properties:
+                        defaultDenyIngress:
+                          type: boolean
+                          default: true
+                        defaultDenyEgress:
+                          type: boolean
+                          default: false
+                        allowedIngress:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              from:
+                                type: array
+                                items:
+                                  type: object
+                                  properties:
+                                    podSelector:
+                                      type: object
+                                      properties:
+                                        matchLabels:
+                                          type: object
+                                          additionalProperties:
+                                            type: string
+                                    namespaceSelector:
+                                      type: object
+                                      properties:
+                                        matchLabels:
+                                          type: object
+                                          additionalProperties:
+                                            type: string
+                                    ipBlock:
+                                      type: object
+                                      properties:
+                                        cidr:
+                                          type: string
+                                        except:
+                                          type: array
+                                          items:
+                                            type: string
+                                      required: [cidr]
+                              ports:
+                                type: array
+                                items:
+                                  type: object
+                                  properties:
+                                    protocol:
+                                      type: string
+                                      enum: [TCP, UDP]
+                                    port:
+                                      type: integer
+                                  required: [protocol, port]
+                        allowedEgress:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              to:
+                                type: array
+                                items:
+                                  type: object
+                                  properties:
+                                    podSelector:
+                                      type: object
+                                      properties:
+                                        matchLabels:
+                                          type: object
+                                          additionalProperties:
+                                            type: string
+                                    namespaceSelector:
+                                      type: object
+                                      properties:
+                                        matchLabels:
+                                          type: object
+                                          additionalProperties:
+                                            type: string
+                                    ipBlock:
+                                      type: object
+                                      properties:
+                                        cidr:
+                                          type: string
+                                        except:
+                                          type: array
+                                          items:
+                                            type: string
+                                      required: [cidr]
+                              ports:
+                                type: array
+                                items:
+                                  type: object
+                                  properties:
+                                    protocol:
+                                      type: string
+                                      enum: [TCP, UDP]
+                                    port:
+                                      type: integer
+                                  required: [protocol, port]
+                      required: []
+                    secretsManagement:
+                      type: object
+                      properties:
+                        encryption:
+                          type: boolean
+                          default: true
+                        rotationSchedule:
+                          type: string
+                          default: "0 0 1 * *"
+                          description: "Cron expression for rotation schedule"
+                        externalSecrets:
+                          type: boolean
+                          default: true
+                          description: "Use external secrets manager"
+                        secretProviderClass:
+                          type: string
+                          description: "Secret provider class name"
+                      required: []
+                  required: []
+                resourceQuotas:
+                  type: object
+                  properties:
+                    enabled:
+                      type: boolean
+                      default: true
+                    cpu:
+                      type: object
+                      properties:
+                        requests:
+                          type: string
+                          default: "10"
+                        limits:
+                          type: string
+                          default: "20"
+                      required: []
+                    memory:
+                      type: object
+                      properties:
+                        requests:
+                          type: string
+                          default: "20Gi"
+                        limits:
+                          type: string
+                          default: "40Gi"
+                      required: []
+                    pods:
+                      type: integer
+                      default: 50
+                    services:
+                      type: integer
+                      default: 20
+                    persistentVolumeClaims:
+                      type: integer
+                      default: 20
+                    configMaps:
+                      type: integer
+                      default: 30
+                    secrets:
+                      type: integer
+                      default: 30
+                  required: [enabled]
+                limitRanges:
+                  type: object
+                  properties:
+                    enabled:
+                      type: boolean
+                      default: true
+                    defaultRequest:
+                      type: object
+                      properties:
+                        cpu:
+                          type: string
+                          default: "100m"
+                        memory:
+                          type: string
+                          default: "128Mi"
+                      required: []
+                    default:
+                      type: object
+                      properties:
+                        cpu:
+                          type: string
+                          default: "500m"
+                        memory:
+                          type: string
+                          default: "512Mi"
+                      required: []
+                    max:
+                      type: object
+                      properties:
+                        cpu:
+                          type: string
+                          default: "2"
+                        memory:
+                          type: string
+                          default: "4Gi"
+                      required: []
+                    min:
+                      type: object
+                      properties:
+                        cpu:
+                          type: string
+                          default: "50m"
+                        memory:
+                          type: string
+                          default: "64Mi"
+                      required: []
+                  required: [enabled]
+                autoscaling:
+                  type: object
+                  properties:
+                    horizontalPodAutoscaler:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        defaultMinReplicas:
+                          type: integer
+                          default: 2
+                        defaultMaxReplicas:
+                          type: integer
+                          default: 10
+                        defaultTargetCPUUtilizationPercentage:
+                          type: integer
+                          default: 80
+                        defaultTargetMemoryUtilizationPercentage:
+                          type: integer
+                          default: 80
+                      required: [enabled]
+                    verticalPodAutoscaler:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: false
+                        updateMode:
+                          type: string
+                          enum: [Off, Initial, Recreate, Auto]
+                          default: "Initial"
+                      required: [enabled]
+                    clusterAutoscaler:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        minNodes:
+                          type: integer
+                          default: 3
+                        maxNodes:
+                          type: integer
+                          default: 10
+                      required: [enabled]
+                  required: []
+                compliance:
+                  type: object
+                  properties:
+                    enabled:
+                      type: boolean
+                      default: true
+                    standards:
+                      type: array
+                      items:
+                        type: string
+                        enum: [PCI-DSS, HIPAA, SOC2, ISO27001, GDPR]
+                    dataClassification:
+                      type: string
+                      enum: [public, internal, confidential, restricted]
+                      default: "internal"
+                    dataRetention:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        policyDays:
+                          type: integer
+                          default: 90
+                        archiveAfterDays:
+                          type: integer
+                          default: 30
+                      required: [enabled]
+                    auditLogging:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        retentionDays:
+                          type: integer
+                          default: 90
+                        sensitiveOperations:
+                          type: array
+                          items:
+                            type: string
+                      required: [enabled]
+                  required: [enabled]
+              required: [cellSelector]
+            status:
+              type: object
+              properties:
+                applied:
+                  type: boolean
+                lastAppliedTime:
+                  type: string
+                violations:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      policy:
+                        type: string
+                      description:
+                        type: string
+                      severity:
+                        type: string
+                        enum: [info, warning, critical]
+                      timestamp:
+                        type: string
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                      reason:
+                        type: string
+                      message:
+                        type: string
+  conversion:
+    strategy: None

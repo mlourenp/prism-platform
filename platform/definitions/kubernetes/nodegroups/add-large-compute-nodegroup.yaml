@@ -1,0 +1,17 @@
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: prism-platform-mgmt
+  region: us-west-2
+
+managedNodeGroups:
+  - name: large-compute-nodes
+    instanceType: m5.8xlarge
+    desiredCapacity: 1
+    minSize: 1
+    maxSize: 3
+    volumeSize: 100
+    tags:
+      k8s.io/cluster-autoscaler/enabled: "true"
+      k8s.io/cluster-autoscaler/prism-platform-mgmt: "owned"

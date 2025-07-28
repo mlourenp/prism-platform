@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: generic-workload
+  namespace: prism-platform
+  labels:
+    app: prism-platform
+    component: generic-workload
+    cell: logic-cell
+    prism.io/platform: "management-plane"
+    prism.io/cell-type: "logic"
+    prism.io/workload-type: "computational"
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: prism-platform
+      component: generic-workload
+  template:
+    metadata:
+      labels:
+        app: prism-platform
+        component: generic-workload
+        prism.io/cell-type: "logic"
+        prism.io/workload-type: "computational"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: prism-platform-app-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      containers:
+      - name: workload-processor
+        image: nginx:alpine
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        env:
+        - name: PRISM_CELL_TYPE
+          value: "logic"
+        - name: PRISM_WORKLOAD_TYPE
+          value: "computational"
+        - name: PRISM_PLATFORM_VERSION
+          value: "v1.2"
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1Gi
+          limits:
+            cpu: 1000m
+            memory: 2Gi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: tmp-volume
+          mountPath: /tmp
+        - name: config-volume
+          mountPath: /app/config
+          readOnly: true
+      volumes:
+      - name: tmp-volume
+        emptyDir: {}
+      - name: config-volume
+        configMap:
+          name: generic-workload-config
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: component
+                  operator: In
+                  values:
+                  - generic-workload
+              topologyKey: kubernetes.io/hostname 

@@ -1,0 +1,199 @@
+# Cilium configuration for Prism Platform
+# eBPF-based networking, security, and observability
+
+# Basic configuration
+cluster:
+  name: "prism-platform"
+  id: 1
+
+# IPAM (IP Address Management)
+ipam:
+  mode: "kubernetes"  # Can be overridden based on cloud provider
+
+# CNI configuration
+cni:
+  install: true
+  chainingMode: "none"
+
+# eBPF configuration
+bpf:
+  masquerade: true
+  hostRouting: false
+  preallocateMaps: true
+  autoMount:
+    enabled: true
+
+# Network policies
+policyEnforcement: "default"
+policyAuditMode: false
+
+# Load balancing
+loadBalancer:
+  algorithm: "maglev"
+  mode: "snat"
+
+# Hubble (observability layer)
+hubble:
+  enabled: true
+  
+  # Hubble relay (cluster-wide observability)
+  relay:
+    enabled: true
+    service:
+      type: ClusterIP
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+        
+  # Hubble UI
+  ui:
+    enabled: true
+    service:
+      type: ClusterIP
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+        
+  # Metrics configuration
+  metrics:
+    enabled:
+    - dns
+    - drop
+    - tcp
+    - flow
+    - port-distribution
+    - icmp
+    - http
+    
+    serviceMonitor:
+      enabled: true
+      
+  # Export configuration for external systems
+  export:
+    static:
+      enabled: false
+    dynamic:
+      enabled: false
+
+# Prometheus metrics
+prometheus:
+  enabled: true
+  port: 9090
+  serviceMonitor:
+    enabled: true
+    
+# Operator configuration
+operator:
+  enabled: true
+  rollOutPods: true
+  
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+      
+  prometheus:
+    enabled: true
+    port: 6942
+    serviceMonitor:
+      enabled: true
+
+# Agent configuration
+agent:
+  enabled: true
+  
+  # Resource configuration
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      cpu: 4000m
+      memory: 4Gi
+      
+  # Health checking
+  healthChecking: true
+  
+  # Monitor aggregation level
+  monitorAggregation: "medium"
+
+# Security configuration
+encryption:
+  enabled: false  # Can be enabled for additional security
+  type: "wireguard"
+
+# Service mesh integration
+serviceMesh:
+  enabled: false  # Set to true when Istio is enabled
+
+# L7 proxy configuration
+l7Proxy: true
+
+# External traffic
+externalIPs:
+  enabled: false
+
+# Local redirect policy
+localRedirectPolicy: false
+
+# Bandwidth manager
+bandwidthManager: false
+
+# Socket load balancing
+socketLB:
+  enabled: false
+
+# Node port acceleration
+nodePort:
+  enabled: true
+  acceleration: "native"
+
+# Host services
+hostServices:
+  enabled: true
+  protocols: tcp,udp
+
+# Well-known identities
+wellKnownIdentities:
+  enabled: true
+
+# Cilium envoy config
+envoy:
+  enabled: false
+
+# Debug configuration
+debug:
+  enabled: false
+  verbose: ""
+
+# Roll out cilium agent pods automatically
+rollOutCiliumPods: false
+
+# Restart pods when configmap is updated
+restartPods: true
+
+# Container runtime
+containerRuntime:
+  integration: "containerd"
+
+# Kube proxy replacement
+kubeProxyReplacement: "strict"
+
+# Node selector for Cilium components
+nodeSelector:
+  kubernetes.io/os: linux
+
+# Tolerations to run on all nodes
+tolerations:
+- operator: Exists 

@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: bpftrace
+  namespace: bpftrace
+  labels:
+    app: bpftrace
+spec:
+  selector:
+    matchLabels:
+      app: bpftrace
+  template:
+    metadata:
+      labels:
+        app: bpftrace
+    spec:
+      tolerations:
+      - key: node-role.kubernetes.io/master
+        effect: NoSchedule
+      containers:
+      - name: bpftrace
+        image: quay.io/iovisor/bpftrace:latest
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: sys
+          mountPath: /sys
+        - name: modules
+          mountPath: /lib/modules
+        - name: debugfs
+          mountPath: /sys/kernel/debug
+        resources:
+          limits:
+            memory: 512Mi
+            cpu: 500m
+          requests:
+            memory: 256Mi
+            cpu: 100m
+      volumes:
+      - name: sys
+        hostPath:
+          path: /sys
+      - name: modules
+        hostPath:
+          path: /lib/modules
+      - name: debugfs
+        hostPath:
+          path: /sys/kernel/debug

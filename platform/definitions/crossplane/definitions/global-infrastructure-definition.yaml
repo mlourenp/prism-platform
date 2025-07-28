@@ -1,0 +1,428 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: globalinfrastructures.saas.example.com
+spec:
+  group: saas.example.com
+  names:
+    kind: GlobalInfrastructure
+    plural: globalinfrastructures
+  claimNames:
+    kind: GlobalInfrastructureClaim
+    plural: globalinfrastructureclaims
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                regions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                        description: "AWS region name, e.g. us-east-1"
+                      infrastructureRef:
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                            description: "Reference to RegionalInfrastructure resource"
+                        required: [name]
+                      isPrimary:
+                        type: boolean
+                        default: false
+                        description: "Whether this is the primary region"
+                      trafficWeight:
+                        type: integer
+                        minimum: 0
+                        maximum: 100
+                        default: 50
+                        description: "Percentage of global traffic to route to this region"
+                      failoverPriority:
+                        type: integer
+                        minimum: 1
+                        default: 1
+                        description: "Failover priority (lower is higher priority)"
+                    required: [name, infrastructureRef]
+                  minItems: 1
+                dns:
+                  type: object
+                  properties:
+                    domain:
+                      type: string
+                      description: "Primary domain name for the platform"
+                    managedZone:
+                      type: string
+                      description: "DNS managed zone name"
+                    ttl:
+                      type: integer
+                      default: 300
+                      description: "DNS TTL in seconds"
+                    healthCheckPath:
+                      type: string
+                      default: "/health"
+                      description: "Path for health check endpoint"
+                    healthCheckInterval:
+                      type: integer
+                      default: 30
+                      description: "Health check interval in seconds"
+                    healthCheckTimeout:
+                      type: integer
+                      default: 5
+                      description: "Health check timeout in seconds"
+                    healthCheckThreshold:
+                      type: integer
+                      default: 2
+                      description: "Number of failed checks before marking unhealthy"
+                  required: [domain]
+                trafficManagement:
+                  type: object
+                  properties:
+                    type:
+                      type: string
+                      enum: [latency, weighted, geo]
+                      default: "latency"
+                      description: "Traffic routing policy type"
+                    latencyConfig:
+                      type: object
+                      properties:
+                        evaluationPeriod:
+                          type: string
+                          default: "1h"
+                          description: "Period to evaluate latency statistics"
+                        thresholdMs:
+                          type: integer
+                          default: 50
+                          description: "Latency threshold in milliseconds"
+                        probeInterval:
+                          type: string
+                          default: "30s"
+                          description: "Interval for latency probes"
+                      required: []
+                    weightedConfig:
+                      type: object
+                      properties:
+                        adjustmentInterval:
+                          type: string
+                          default: "1h"
+                          description: "Interval for traffic weight adjustments"
+                        minWeight:
+                          type: integer
+                          minimum: 0
+                          maximum: 100
+                          default: 10
+                          description: "Minimum traffic weight for a region"
+                      required: []
+                    geoConfig:
+                      type: object
+                      properties:
+                        mappings:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              continent:
+                                type: string
+                                description: "Continent code"
+                              country:
+                                type: string
+                                description: "Country code"
+                              region:
+                                type: string
+                                description: "Region name to route to"
+                            required: [region]
+                      required: []
+                  required: []
+                loadBalancing:
+                  type: object
+                  properties:
+                    type:
+                      type: string
+                      enum: [alb, nlb, cloudfront]
+                      default: "alb"
+                      description: "Load balancer type"
+                    ssl:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        certificates:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              domain:
+                                type: string
+                              arn:
+                                type: string
+                            required: [domain]
+                      required: []
+                    waf:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        rules:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                              priority:
+                                type: integer
+                              action:
+                                type: string
+                                enum: [block, allow, count]
+                            required: [name, action]
+                      required: []
+                    accessLogs:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        bucket:
+                          type: string
+                        prefix:
+                          type: string
+                      required: [enabled]
+                  required: []
+                failover:
+                  type: object
+                  properties:
+                    enabled:
+                      type: boolean
+                      default: true
+                    mode:
+                      type: string
+                      enum: [automatic, manual]
+                      default: "automatic"
+                    thresholds:
+                      type: object
+                      properties:
+                        errorRate:
+                          type: number
+                          default: 0.1
+                          description: "Error rate threshold to trigger failover"
+                        latency:
+                          type: string
+                          default: "500ms"
+                          description: "Latency threshold to trigger failover"
+                        availability:
+                          type: number
+                          default: 0.98
+                          description: "Availability threshold to trigger failover"
+                      required: []
+                    cooldown:
+                      type: string
+                      default: "5m"
+                      description: "Cooldown period after failover"
+                    healthCheckPath:
+                      type: string
+                      default: "/health"
+                      description: "Path to check for health status"
+                  required: [enabled]
+                observability:
+                  type: object
+                  properties:
+                    globalDashboards:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        provider:
+                          type: string
+                          enum: [grafana, cloudwatch, datadog]
+                          default: "grafana"
+                      required: [enabled]
+                    metricsFederation:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        storage:
+                          type: string
+                          enum: [thanos, prometheus, s3]
+                          default: "thanos"
+                        retentionPeriod:
+                          type: string
+                          default: "90d"
+                        scrapeInterval:
+                          type: string
+                          default: "30s"
+                      required: [enabled]
+                    distributedTracing:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        provider:
+                          type: string
+                          enum: [jaeger, x-ray, opentelemetry]
+                          default: "jaeger"
+                        sampling:
+                          type: object
+                          properties:
+                            type:
+                              type: string
+                              enum: [probabilistic, rate-limiting, tail-based]
+                              default: "probabilistic"
+                            rate:
+                              type: number
+                              default: 0.1
+                              description: "Sampling rate"
+                          required: []
+                      required: [enabled]
+                    centralizedLogging:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        provider:
+                          type: string
+                          enum: [elasticsearch, cloudwatch, loki]
+                          default: "elasticsearch"
+                        retention:
+                          type: string
+                          default: "30d"
+                      required: [enabled]
+                    alerting:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        provider:
+                          type: string
+                          enum: [alertmanager, sns, pagerduty]
+                          default: "alertmanager"
+                        globalRules:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                              expr:
+                                type: string
+                              for:
+                                type: string
+                              severity:
+                                type: string
+                                enum: [info, warning, critical]
+                            required: [name, expr, severity]
+                      required: [enabled]
+                  required: []
+                security:
+                  type: object
+                  properties:
+                    waf:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        managedRuleSets:
+                          type: array
+                          items:
+                            type: string
+                            enum: [AWSManagedRulesCommonRuleSet, AWSManagedRulesLinuxRuleSet, AWSManagedRulesSQLiRuleSet]
+                      required: [enabled]
+                    ddos:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        protection:
+                          type: string
+                          enum: [shield, standard]
+                          default: "standard"
+                      required: [enabled]
+                    certificateManagement:
+                      type: object
+                      properties:
+                        provider:
+                          type: string
+                          enum: [acm, lets-encrypt]
+                          default: "acm"
+                        autoRenewal:
+                          type: boolean
+                          default: true
+                        domains:
+                          type: array
+                          items:
+                            type: string
+                      required: []
+                  required: []
+              required: [regions, dns]
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum: [Pending, Provisioning, Running, Failed]
+                endpoints:
+                  type: object
+                  properties:
+                    api:
+                      type: string
+                    dashboard:
+                      type: string
+                    monitoring:
+                      type: string
+                regionStatuses:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      region:
+                        type: string
+                      status:
+                        type: string
+                        enum: [Healthy, Degraded, Unhealthy]
+                      failoverStatus:
+                        type: string
+                        enum: [Active, Standby, Failed]
+                      trafficPercentage:
+                        type: integer
+                      latency:
+                        type: string
+                currentPrimaryRegion:
+                  type: string
+                  description: "Currently active primary region"
+                lastFailoverTime:
+                  type: string
+                  description: "Last time failover occurred"
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                      reason:
+                        type: string
+                      message:
+                        type: string
+  conversion:
+    strategy: None

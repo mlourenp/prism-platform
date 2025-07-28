@@ -1,0 +1,162 @@
+## Elasticsearch values configuration for Prism Platform
+
+# Specify a name for the cluster
+clusterName: "prism-platform"
+nodeGroup: "master"
+
+# Provide a custom value for resource naming
+fullnameOverride: "elasticsearch"
+
+# Specify a version number for ECK
+version: 7.17.7
+
+# Provide the initial number of nodes
+replicas: 3
+
+# Specify this to set minimum_master_nodes automatically
+minimumMasterNodes: 2
+
+esMajorVersion: 7
+
+# Allocate 4GB of memory to elasticsearch JVM heap
+esJavaOpts: "-Xmx4g -Xms4g"
+
+# Elasticsearch roles
+roles:
+  master: "true"
+  ingest: "true"
+  data: "true"
+  remote_cluster_client: "true"
+
+# Request 8Gi of persistent storage for elasticsearch
+volumeClaimTemplate:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: "gp2"
+
+# Allocate node resources
+resources:
+  requests:
+    cpu: "1000m"
+    memory: "6Gi"
+  limits:
+    cpu: "2000m"
+    memory: "8Gi"
+
+# Schedule elasticsearch pods on observability nodes
+nodeSelector:
+  role: observability
+
+# Security settings
+protocol: https
+esConfig:
+  elasticsearch.yml: |
+    xpack.security.enabled: true
+    xpack.security.transport.ssl.enabled: true
+    xpack.security.transport.ssl.verification_mode: certificate
+    xpack.security.transport.ssl.keystore.path: /usr/share/elasticsearch/config/certs/elastic-certificates.p12
+    xpack.security.transport.ssl.truststore.path: /usr/share/elasticsearch/config/certs/elastic-certificates.p12
+    xpack.security.http.ssl.enabled: false
+    xpack.monitoring.collection.enabled: true
+
+# Configure master node affinity
+antiAffinity: "soft"
+
+# Create elasticsearch service
+service:
+  type: ClusterIP
+  nodePort: ""
+  annotations: {}
+  labels: {}
+  labelsHeadless: {}
+
+# Configure Ingress if needed
+ingress:
+  enabled: false
+
+# Configure network policy
+networkPolicy:
+  http:
+    enabled: true
+    ingressNSMatchLabels:
+      kubernetes.io/metadata.name: prism-platform
+    ingressNSPodMatchLabels:
+      app: opentelemetry
+
+# Data node settings
+data:
+  replicas: 2
+  resources:
+    requests:
+      cpu: "1000m"
+      memory: "4Gi"
+    limits:
+      cpu: "2000m"
+      memory: "6Gi"
+  persistence:
+    enabled: true
+    storageClass: "gp2"
+    accessMode: ReadWriteOnce
+    size: 100Gi
+  nodeSelector:
+    role: observability
+
+# Ingest node settings (disabled, using master for ingest)
+ingest:
+  enabled: false
+
+# Create coordinating node to handle search and index requests
+coordinating:
+  replicas: 2
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "2Gi"
+    limits:
+      cpu: "1000m"
+      memory: "4Gi"
+  nodeSelector:
+    role: observability
+
+# Elasticsearch exporter for Prometheus metrics
+prometheus:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    namespace: prism-platform
+    labels:
+      release: prometheus
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "256Mi"
+
+# OpenSearch Dashboards settings
+dashboards:
+  enabled: true
+  replicas: 1
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "1Gi"
+    limits:
+      cpu: "500m"
+      memory: "2Gi"
+  nodeSelector:
+    role: observability
+  service:
+    type: ClusterIP
+  ingress:
+    enabled: false
+  dashboardsConfig:
+    opensearch_dashboards.yml: |
+      server.name: opensearch-dashboards
+      server.host: "0"
+      opensearch.hosts: ["http://elasticsearch-client:9200"]
+      opensearch.ssl.verificationMode: none
+      monitoring.ui.container.opensearch.enabled: true

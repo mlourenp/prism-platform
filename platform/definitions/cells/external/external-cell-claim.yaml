@@ -1,0 +1,15 @@
+apiVersion: prism.io/v1alpha1
+kind: Cell
+metadata:
+  name: example-external-cell
+  labels:
+    prism.io/cell-type: external
+    prism.io/example: "true"
+spec:
+  cellId: "external-integrations-us-east"
+  cellType: "external"
+  provider: "aws"
+  region: "us-east-1"
+  resources:
+    cpu: "4000m"
+    memory: "16Gi"

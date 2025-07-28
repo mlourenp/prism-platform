@@ -1,0 +1,34 @@
+deployOLMOperator: true
+deployCloudServices: false
+apiKey: "demo-token-for-testing"
+clusterName: ""
+dataAccess:
+  enabled: true
+vizier:
+  useEtcdOperator: false
+  # AWS EKS specific settings
+  patches:
+    # For AWS EKS compatibility
+    privileged: true
+    disablePerfBufferHookup: true
+
+# Pixie configuration for Kubernetes
+pixie:
+  image:
+    repository: pixielabs/pixie
+    tag: v0.12.0
+  clusterName: "prism-platform-cluster"
+  deployKey: ""  # Set this in your deployment
+  dataAccess: "Full"
+  dataRetention: "30d"
+  pemMemoryLimit: "2Gi"
+  pemMemoryRequest: "1Gi"
+
+# Enable cloud connector for hybrid deployments
+cloudConnector:
+  enabled: true
+
+# Storage configuration
+storage:
+  enabled: true
+  size: "50Gi"

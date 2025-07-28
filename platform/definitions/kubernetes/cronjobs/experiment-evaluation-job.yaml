@@ -1,0 +1,100 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: experiment-evaluation-job
+  namespace: ml-system
+  labels:
+    app: experiment-evaluation
+    component: ml-pipeline
+spec:
+  # Schedule to run every hour
+  schedule: "0 * * * *"
+  # Prevent concurrent job executions
+  concurrencyPolicy: Forbid
+  # Keep 3 successful and 1 failed job for history
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      # Set timeout to 10 minutes for the job
+      activeDeadlineSeconds: 600
+      template:
+        metadata:
+          labels:
+            app: experiment-evaluation
+            component: ml-pipeline
+        spec:
+          # Use service account with necessary permissions
+          serviceAccountName: ml-pipeline-sa
+          restartPolicy: OnFailure
+          containers:
+          - name: experiment-evaluation-container
+            image: ${REGISTRY}/${PROJECT}/ml-system:${TAG}
+            imagePullPolicy: Always
+            command:
+            - python
+            - -c
+            - |
+              import logging
+              import os
+              import sys
+              from src.api.services.ab_testing import ABTestingService
+
+              # Configure logging
+              logging.basicConfig(
+                  level=logging.INFO,
+                  format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+              )
+              logger = logging.getLogger("experiment-evaluator")
+
+              logger.info("Starting experiment evaluation")
+
+              # Initialize A/B testing service
+              try:
+                  service = ABTestingService()
+                  # Evaluate all running experiments
+                  results = service.evaluate_experiments()
+                  logger.info(f"Evaluated {len(results)} experiments")
+
+                  # Log details of evaluations
+                  for result in results:
+                      experiment_id = result.get('experiment_id')
+                      if 'error' in result:
+                          logger.error(f"Error evaluating experiment {experiment_id}: {result['error']}")
+                      else:
+                          status = result.get('overall_result', {}).get('status', 'unknown')
+                          winner = result.get('overall_result', {}).get('winner', 'inconclusive')
+                          should_conclude = result.get('should_conclude', False)
+                          logger.info(
+                              f"Experiment {experiment_id}: status={status}, "
+                              f"winner={winner}, should_conclude={should_conclude}"
+                          )
+
+                  logger.info("Experiment evaluation completed successfully")
+                  sys.exit(0)
+              except Exception as e:
+                  logger.error(f"Error running experiment evaluation: {str(e)}", exc_info=True)
+                  sys.exit(1)
+            env:
+            - name: REDIS_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: ml-system-config
+                  key: redis_host
+            - name: REDIS_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: ml-system-config
+                  key: redis_port
+            - name: MODEL_REGISTRY_URI
+              valueFrom:
+                configMapKeyRef:
+                  name: ml-system-config
+                  key: model_registry_uri
+            resources:
+              requests:
+                memory: "256Mi"
+                cpu: "100m"
+              limits:
+                memory: "512Mi"
+                cpu: "200m"

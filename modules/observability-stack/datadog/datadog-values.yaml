@@ -1,0 +1,164 @@
+# Datadog Agent configuration for Prism Platform
+# Provides comprehensive APM and monitoring as alternative to eBPF stack
+
+datadog:
+  # API and app keys (will be set via Terraform variables)
+  apiKey: ""
+  appKey: ""
+  site: "datadoghq.com"
+  
+  # Cluster name and environment tags
+  clusterName: "prism-platform"
+  env: "production"
+  
+  # Platform-specific tags
+  tags:
+    - "platform:prism"
+    - "component:observability"
+    - "architecture:cell-based"
+  
+  # APM configuration
+  apm:
+    enabled: true
+    port: 8126
+    
+  # Log collection
+  logs:
+    enabled: true
+    containerCollectAll: true
+    
+  # Process monitoring
+  processAgent:
+    enabled: true
+    
+  # System probe for network monitoring
+  systemProbe:
+    enabled: true
+    
+  # Security agent
+  securityAgent:
+    enabled: true
+
+# Agent configuration
+agents:
+  image:
+    repository: gcr.io/datadoghq/agent
+    tag: "7.48.0"
+    
+  # Resource configuration
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+      
+  # Node selection
+  nodeSelector:
+    kubernetes.io/os: linux
+    
+  # Tolerations for monitoring all nodes
+  tolerations:
+  - operator: Exists
+    effect: NoSchedule
+  - operator: Exists
+    effect: NoExecute
+    
+  # Pod security context
+  podSecurity:
+    securityContext:
+      runAsUser: 0
+    seLinuxOptions:
+      user: system_u
+      role: system_r
+      type: spc_t
+      level: s0
+
+# Cluster Agent configuration
+clusterAgent:
+  enabled: true
+  
+  image:
+    repository: gcr.io/datadoghq/cluster-agent
+    tag: "7.48.0"
+    
+  replicas: 2
+  
+  # Resource configuration
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+      
+  # Enable features
+  metricsProvider:
+    enabled: true
+  externalMetrics:
+    enabled: true
+  admissionController:
+    enabled: true
+    mutateUnlabelled: false
+
+# Kubernetes integrations
+kubeStateMetricsCore:
+  enabled: true
+  
+# Network monitoring
+networkMonitoring:
+  enabled: true
+  
+# Service map
+serviceMap:
+  enabled: true
+  
+# Live processes
+liveProcessCollection:
+  enabled: true
+  
+# Live containers
+liveContainerCollection:
+  enabled: true
+  
+# Orchestrator explorer
+orchestratorExplorer:
+  enabled: true
+  
+# Cluster checks
+clusterChecksRunner:
+  enabled: true
+  replicas: 2
+  
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Prism-specific monitoring configurations
+monitors:
+  # Cell-based architecture monitoring
+  cells:
+    enabled: true
+    namespaces:
+    - "channel-cell"
+    - "logic-cell"
+    - "data-cell"
+    - "security-cell"
+    - "external-cell"
+    - "integration-cell"
+    - "legacy-cell"
+    - "observability-cell"
+    
+  # Custom metrics for Prism platform
+  customMetrics:
+  - "prism.cell.cpu.utilization"
+  - "prism.cell.memory.utilization"
+  - "prism.cell.network.throughput"
+  - "prism.cell.request.latency"
+  - "prism.cell.error.rate" 

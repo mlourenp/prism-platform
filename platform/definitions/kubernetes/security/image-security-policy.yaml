@@ -1,0 +1,149 @@
+apiVersion: security.gatekeeper.sh/v1beta1
+kind: ImagePolicy
+metadata:
+  name: prism-platform-image-policy
+  namespace: prism-platform
+spec:
+  # Allowed container image registries
+  allowedRegistries:
+    - "123456789012.dkr.ecr.us-west-2.amazonaws.com"  # Example ECR registry
+    - "registry.prism.io"                      # Company private registry
+    - "registry.k8s.io"                               # Kubernetes default registry
+
+  # Blocklisted images (optional)
+  blockedImages:
+    - "*:latest"   # Block images using the latest tag
+    - "*:edge"     # Block images using the edge tag
+
+  # Required image labels for security scanning
+  requiredLabels:
+    - name: "com.corrospondent.security.scan"
+      value: "passed"
+    - name: "com.corrospondent.version"
+      # No specific value required, just must exist
+
+  # Maximum image age to prevent stale images
+  maxImageAge: 90d  # 90 days
+
+  # Security scanner annotations required
+  requiredAnnotations:
+    - name: "security.corrospondent.io/scan-date"
+    - name: "security.corrospondent.io/vulnerabilities"
+      values:
+        - "none"
+        - "low"  # Allow only none or low vulnerabilities
+
+---
+apiVersion: security.gatekeeper.sh/v1beta1
+kind: ImagePolicyBinding
+metadata:
+  name: prism-platform-image-policy-binding
+  namespace: prism-platform
+spec:
+  policyRef:
+    name: prism-platform-image-policy
+  # Apply to all pods in prism-platform namespace
+  match:
+    namespaces:
+      - prism-platform
+    excludedNamespaces:
+      - kube-system
+      - istio-system
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Pod"]
+      - apiGroups: ["apps"]
+        kinds: ["Deployment", "StatefulSet", "DaemonSet"]
+      - apiGroups: ["batch"]
+        kinds: ["Job", "CronJob"]
+
+---
+# Sample Trivy scanner configuration for container scanning
+apiVersion: scanning.gatekeeper.sh/v1beta1
+kind: ScannerConfig
+metadata:
+  name: trivy-scanner
+  namespace: prism-platform
+spec:
+  scannerType: "Trivy"
+  imagePullSecrets:
+    - name: "corrospondent-registry-credentials"
+  schedule: "0 0 * * *"  # Daily scan at midnight
+  failurePolicy: "Audit"  # Options: Enforce, Audit
+  severity: ["CRITICAL", "HIGH"]  # Block critical and high severity findings
+  ignore: []  # No specific CVEs to ignore
+
+---
+# Example hook for image scanning in CI/CD pipeline
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: image-scan-job-template
+  namespace: prism-platform
+spec:
+  template:
+    spec:
+      serviceAccountName: prism-platform-security-sa
+      containers:
+      - name: trivy-scanner
+        image: 123456789012.dkr.ecr.us-west-2.amazonaws.com/security/trivy:latest
+        command:
+        - "/bin/sh"
+        - "-c"
+        - |
+          trivy image ${IMAGE_TO_SCAN} --format json --output /results/scan.json
+          if [ $(jq '.Results[] | select(.Vulnerabilities[] | select(.Severity=="CRITICAL" or .Severity=="HIGH")) | length' /results/scan.json) -gt 0 ]; then
+            echo "Critical or high vulnerabilities found. Failing build."
+            exit 1
+          fi
+        volumeMounts:
+        - name: scan-results
+          mountPath: /results
+        env:
+        - name: IMAGE_TO_SCAN
+          value: ${IMAGE_TO_SCAN}
+      volumes:
+      - name: scan-results
+        emptyDir: {}
+      restartPolicy: Never
+  backoffLimit: 2
+
+---
+# Instructions for implementation
+# 1. Install OPA Gatekeeper:
+#    kubectl apply -f https://raw.githubusercontent.com/open-policy-agent/gatekeeper/release-3.7/deploy/gatekeeper.yaml
+#
+# 2. Install Trivy scanner as an admission controller:
+#    helm repo add aqua https://aquasecurity.github.io/helm-charts/
+#    helm repo update
+#    helm install trivy-operator aqua/trivy-operator \
+#      --namespace trivy-system \
+#      --create-namespace \
+#      --set="trivy.ignoreUnfixed=true"
+#
+# 3. Apply the image policy:
+#    kubectl apply -f kubernetes/security/image-security-policy.yaml
+#
+# 4. Test a deployment that violates the policy:
+#    kubectl apply -f - <<EOF
+#    apiVersion: apps/v1
+#    kind: Deployment
+#    metadata:
+#      name: test-policy-violation
+#      namespace: prism-platform
+#    spec:
+#      replicas: 1
+#      selector:
+#        matchLabels:
+#          app: test-policy-violation
+#      template:
+#        metadata:
+#          labels:
+#            app: test-policy-violation
+#        spec:
+#          containers:
+#          - name: nginx
+#            image: nginx:latest
+#    EOF
+#
+#    This should be rejected by the admission controller.

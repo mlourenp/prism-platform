@@ -1,0 +1,375 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: observability-cell-composition
+  labels:
+    provider: multi-cloud
+    cell-type: observability
+    prism.io/version: v1.2
+spec:
+  compositeTypeRef:
+    apiVersion: prism.io/v1alpha1
+    kind: Cell
+  writeConnectionSecretsToNamespace: crossplane-system
+  patchSets:
+  - name: common-labels
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: metadata.labels
+  - name: resource-sizing
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.resources.cpu
+      toFieldPath: spec.forProvider.manifest.spec.containers[0].resources.requests.cpu
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.resources.memory
+      toFieldPath: spec.forProvider.manifest.spec.containers[0].resources.requests.memory
+  resources:
+    # Create namespace for observability cell
+    - name: namespace
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: "observability-cell"
+                labels:
+                  prism.io/cell-type: observability
+                  prism.io/managed-by: crossplane
+                  prism.io/monitoring-zone: telemetry
+                  istio-injection: enabled
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create high resource quota for observability workloads
+    - name: resource-quota
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: ResourceQuota
+              metadata:
+                name: observability-cell-quota
+                labels:
+                  prism.io/cell-type: observability
+              spec:
+                hard:
+                  requests.cpu: "12"
+                  limits.cpu: "24"
+                  requests.memory: "48Gi"
+                  limits.memory: "96Gi"
+                  pods: "200"
+                  persistentvolumeclaims: "20"
+                  requests.storage: "2Ti"
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create network policy for observability data collection
+    - name: network-policy
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: networking.k8s.io/v1
+              kind: NetworkPolicy
+              metadata:
+                name: observability-cell-network-policy
+                labels:
+                  prism.io/cell-type: observability
+              spec:
+                podSelector:
+                  matchLabels:
+                    prism.io/cell-type: observability
+                policyTypes:
+                - Ingress
+                - Egress
+                ingress:
+                - from: []  # Allow metrics collection from all namespaces
+                  ports:
+                  - protocol: TCP
+                    port: 9090  # Prometheus
+                  - protocol: TCP
+                    port: 3000  # Grafana
+                  - protocol: TCP
+                    port: 16686 # Jaeger UI
+                  - protocol: TCP
+                    port: 9200  # Elasticsearch
+                  - protocol: TCP
+                    port: 5601  # Kibana
+                egress:
+                - to: []  # Allow collection from all sources
+                  ports:
+                  - protocol: TCP
+                    port: 443  # HTTPS metrics
+                  - protocol: TCP
+                    port: 8080 # HTTP metrics
+                  - protocol: TCP
+                    port: 9090 # Prometheus federation
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create Prometheus service for metrics collection
+    - name: prometheus-service
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: prometheus
+                labels:
+                  prism.io/cell-type: observability
+                  app: prometheus
+              spec:
+                selector:
+                  app: prometheus
+                ports:
+                - name: web
+                  port: 9090
+                  targetPort: 9090
+                type: ClusterIP
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create Grafana service for visualization
+    - name: grafana-service
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: grafana
+                labels:
+                  prism.io/cell-type: observability
+                  app: grafana
+              spec:
+                selector:
+                  app: grafana
+                ports:
+                - name: web
+                  port: 3000
+                  targetPort: 3000
+                type: ClusterIP
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create Jaeger service for distributed tracing
+    - name: jaeger-service
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: jaeger
+                labels:
+                  prism.io/cell-type: observability
+                  app: jaeger
+              spec:
+                selector:
+                  app: jaeger
+                ports:
+                - name: query
+                  port: 16686
+                  targetPort: 16686
+                - name: collector
+                  port: 14268
+                  targetPort: 14268
+                - name: grpc
+                  port: 14250
+                  targetPort: 14250
+                type: ClusterIP
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create Elasticsearch service for log storage
+    - name: elasticsearch-service
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: elasticsearch
+                labels:
+                  prism.io/cell-type: observability
+                  app: elasticsearch
+              spec:
+                selector:
+                  app: elasticsearch
+                ports:
+                - name: http
+                  port: 9200
+                  targetPort: 9200
+                - name: transport
+                  port: 9300
+                  targetPort: 9300
+                type: ClusterIP
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create persistent storage for metrics and logs
+    - name: observability-storage-pvc
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: PersistentVolumeClaim
+              metadata:
+                name: observability-storage-pvc
+                labels:
+                  prism.io/cell-type: observability
+              spec:
+                accessModes:
+                  - ReadWriteOnce
+                resources:
+                  requests:
+                    storage: 1Ti
+                storageClassName: fast-ssd  # High performance for time-series data
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create configmap for observability cell configuration
+    - name: observability-config
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: observability-cell-config
+                labels:
+                  prism.io/cell-type: observability
+              data:
+                cell-type: "observability"
+                workload-types: "metrics-collection,log-aggregation,tracing,alerting,visualization"
+                resource-profile: "storage-and-compute-intensive"
+                scaling-behavior: "horizontal"
+                data-retention: "30d"
+                high-availability: "enabled"
+                alerting-enabled: "true"
+                grafana-dashboards: "enabled"
+                prometheus-federation: "enabled"
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.data.cell-id 

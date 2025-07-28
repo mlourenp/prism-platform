@@ -1,0 +1,307 @@
+## Prometheus values configuration for Prism Platform
+
+rbac:
+  create: true
+
+alertmanager:
+  enabled: true
+  persistentVolume:
+    enabled: true
+    size: 10Gi
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      group_by: ['alertname', 'job', 'cell']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 12h
+      receiver: 'slack'
+      routes:
+      - match:
+          severity: critical
+        receiver: 'pagerduty'
+    receivers:
+    - name: 'slack'
+      slack_configs:
+      - api_url: 'https://hooks.slack.com/services/REPLACE_WITH_ACTUAL_SLACK_WEBHOOK'
+        channel: '#alerts'
+        title: '{{ template "slack.default.title" . }}'
+        text: '{{ template "slack.default.text" . }}'
+    - name: 'pagerduty'
+      pagerduty_configs:
+      - service_key: 'REPLACE_WITH_ACTUAL_PAGERDUTY_KEY'
+        description: '{{ template "pagerduty.default.description" . }}'
+        details:
+          firing: '{{ template "pagerduty.default.instances" .Alerts.Firing }}'
+          resolved: '{{ template "pagerduty.default.instances" .Alerts.Resolved }}'
+          system: 'Prism Platform'
+
+server:
+  persistentVolume:
+    enabled: true
+    size: 50Gi
+  retention: 15d
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: role
+            operator: In
+            values:
+            - observability
+
+serverFiles:
+  prometheus.yml:
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+      scrape_timeout: 10s
+    rule_files:
+      - /etc/config/recording_rules.yml
+      - /etc/config/alerting_rules.yml
+      - /etc/config/rules
+      - /etc/config/alerts
+    scrape_configs:
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: ['localhost:9090']
+        metric_relabel_configs:
+          - source_labels: [__name__]
+            regex: 'prometheus_.*'
+            action: keep
+
+      # Kubernetes API server
+      - job_name: 'kubernetes-apiservers'
+        kubernetes_sd_configs:
+          - role: endpoints
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+            action: keep
+            regex: default;kubernetes;https
+
+      # Kubernetes nodes
+      - job_name: 'kubernetes-nodes'
+        kubernetes_sd_configs:
+          - role: node
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+          - target_label: __address__
+            replacement: kubernetes.default.svc:443
+          - source_labels: [__meta_kubernetes_node_name]
+            regex: (.+)
+            target_label: __metrics_path__
+            replacement: /api/v1/nodes/${1}/proxy/metrics
+
+      # Kubelet
+      - job_name: 'kubernetes-cadvisor'
+        kubernetes_sd_configs:
+          - role: node
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+          - target_label: __address__
+            replacement: kubernetes.default.svc:443
+          - source_labels: [__meta_kubernetes_node_name]
+            regex: (.+)
+            target_label: __metrics_path__
+            replacement: /api/v1/nodes/${1}/proxy/metrics/cadvisor
+
+      # Service endpoints
+      - job_name: 'kubernetes-service-endpoints'
+        kubernetes_sd_configs:
+          - role: endpoints
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scheme]
+            action: replace
+            target_label: __scheme__
+            regex: (https?)
+          - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_service_annotation_prometheus_io_port]
+            action: replace
+            target_label: __address__
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+          - action: labelmap
+            regex: __meta_kubernetes_service_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: kubernetes_namespace
+          - source_labels: [__meta_kubernetes_service_name]
+            action: replace
+            target_label: kubernetes_service_name
+          - source_labels: [__meta_kubernetes_service_name]
+            action: replace
+            target_label: job
+          - source_labels: [__meta_kubernetes_service_label_cell_type]
+            action: replace
+            target_label: cell
+            regex: (.+)
+            replacement: $1
+
+      # Cell-specific services
+      - job_name: 'cell-metrics'
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            target_label: __address__
+            regex: (.+):(?:\d+);(\d+)
+            replacement: ${1}:${2}
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: kubernetes_namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: kubernetes_pod_name
+          - source_labels: [__meta_kubernetes_pod_label_cell_type]
+            action: replace
+            target_label: cell
+            regex: (.+)
+            replacement: $1
+
+      # Istio metrics
+      - job_name: 'istio-mesh'
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names:
+                - istio-system
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+            action: keep
+            regex: istio-telemetry;prometheus
+
+      # Merbridge metrics
+      - job_name: 'merbridge'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - merbridge-system
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: keep
+            regex: merbridge
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            target_label: __address__
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+
+  recording_rules.yml:
+    groups:
+      - name: cell_metrics
+        rules:
+          - record: cell:cpu:usage_avg_5m
+            expr: avg by (cell) (rate(container_cpu_usage_seconds_total{container!="POD",container!=""}[5m]))
+          - record: cell:memory:usage_avg_5m
+            expr: avg by (cell) (container_memory_working_set_bytes{container!="POD",container!=""})/1024/1024
+          - record: cell:network:receive_bytes_avg_5m
+            expr: avg by (cell) (rate(container_network_receive_bytes_total[5m]))
+          - record: cell:network:transmit_bytes_avg_5m
+            expr: avg by (cell) (rate(container_network_transmit_bytes_total[5m]))
+
+      - name: api_metrics
+        rules:
+          - record: api:request:rate_5m
+            expr: sum by (job, route) (rate(http_requests_total[5m]))
+          - record: api:request:latency_avg_5m
+            expr: avg by (job, route) (rate(http_request_duration_seconds_sum[5m])/rate(http_request_duration_seconds_count[5m]))
+          - record: api:request:error_rate_5m
+            expr: sum by (job, route) (rate(http_requests_total{status_code=~"5.."}[5m])) / sum by (job, route) (rate(http_requests_total[5m]))
+
+  alerting_rules.yml:
+    groups:
+      - name: cell_alerts
+        rules:
+          - alert: CellHighCPUUsage
+            expr: cell:cpu:usage_avg_5m > 0.8
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High CPU usage in {{ $labels.cell }} cell"
+              description: "Cell {{ $labels.cell }} is using more than 80% CPU for the last 10m"
+
+          - alert: CellHighMemoryUsage
+            expr: cell:memory:usage_avg_5m / cell:memory:limit * 100 > 85
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High memory usage in {{ $labels.cell }} cell"
+              description: "Cell {{ $labels.cell }} is using more than 85% of its memory limit for the last 10m"
+
+          - alert: CellPodsRestarting
+            expr: rate(kube_pod_container_status_restarts_total{namespace="prism-platform"}[15m]) > 0
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Pods are restarting in {{ $labels.cell }} cell"
+              description: "Pod {{ $labels.pod }} in cell {{ $labels.cell }} is restarting frequently"
+
+      - name: api_alerts
+        rules:
+          - alert: HighErrorRate
+            expr: api:request:error_rate_5m > 0.05
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "High error rate for {{ $labels.job }} on {{ $labels.route }}"
+              description: "Error rate is above 5% for {{ $labels.job }} on route {{ $labels.route }}"
+
+          - alert: HighLatency
+            expr: api:request:latency_avg_5m > 1
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High latency for {{ $labels.job }} on {{ $labels.route }}"
+              description: "Latency is above 1s for {{ $labels.job }} on route {{ $labels.route }}"

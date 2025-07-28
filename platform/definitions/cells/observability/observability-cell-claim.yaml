@@ -1,0 +1,20 @@
+apiVersion: saas.example.com/v1alpha1
+kind: CellClaim
+metadata:
+  name: observability-cell
+  namespace: prism-system
+  labels:
+    prism.io/cell-type: observability
+spec:
+  cellType: observability
+  region: us-east-1
+  cloudProvider: aws
+  priority: 9
+  resources:
+    cpu: "2"
+    memory: "8Gi"
+    storage: "100Gi"
+  compositionSelector:
+    matchLabels:
+      provider: aws
+      cellType: observability

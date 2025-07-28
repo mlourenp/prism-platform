@@ -1,0 +1,274 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: globalinfrastructures.saas.example.com
+  labels:
+    provider: aws
+    environment: production
+spec:
+  compositeTypeRef:
+    apiVersion: saas.example.com/v1alpha1
+    kind: GlobalInfrastructure
+  writeConnectionSecretsToNamespace: crossplane-system
+  patchSets:
+    - name: common-labels
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.labels
+          toFieldPath: metadata.labels
+  resources:
+    - name: global-iam-role
+      base:
+        apiVersion: iam.aws.crossplane.io/v1beta1
+        kind: Role
+        spec:
+          forProvider:
+            description: Global IAM role for cross-region management
+            assumeRolePolicyDocument: |
+              {
+                "Version": "2012-10-17",
+                "Statement": [
+                  {
+                    "Effect": "Allow",
+                    "Principal": {
+                      "Service": "eks.amazonaws.com"
+                    },
+                    "Action": "sts:AssumeRole"
+                  }
+                ]
+              }
+            tags:
+              Environment: production
+          providerConfigRef:
+            name: aws-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.environmentTag
+          toFieldPath: spec.forProvider.tags.Environment
+
+    - name: global-route53-zone
+      base:
+        apiVersion: route53.aws.crossplane.io/v1alpha1
+        kind: HostedZone
+        spec:
+          forProvider:
+            name: ""
+            config:
+              comment: "Global DNS zone for SaaS platform"
+              privateZone: false
+            tags:
+              - key: Name
+                value: global-dns-zone
+              - key: Environment
+                value: production
+              - key: ManagedBy
+                value: crossplane
+          providerConfigRef:
+            name: aws-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.baseDomain
+          toFieldPath: spec.forProvider.name
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.environmentTag
+          toFieldPath: spec.forProvider.tags[1].value
+        - type: ToCompositeFieldPath
+          fromFieldPath: status.atProvider.id
+          toFieldPath: status.hostedZoneId
+
+    - name: global-acm-certificate
+      base:
+        apiVersion: acm.aws.crossplane.io/v1beta1
+        kind: Certificate
+        spec:
+          forProvider:
+            domainName: ""
+            subjectAlternativeNames:
+              - ""
+            validationMethod: DNS
+            tags:
+              Environment: production
+          providerConfigRef:
+            name: aws-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.baseDomain
+          toFieldPath: spec.forProvider.domainName
+          transforms:
+            - type: string
+              string:
+                fmt: "*.%s"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.baseDomain
+          toFieldPath: spec.forProvider.subjectAlternativeNames[0]
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.environmentTag
+          toFieldPath: spec.forProvider.tags.Environment
+        - type: ToCompositeFieldPath
+          fromFieldPath: status.atProvider.certificateArn
+          toFieldPath: status.certificateArn
+
+    - name: global-dynamodb-table
+      base:
+        apiVersion: dynamodb.aws.crossplane.io/v1beta1
+        kind: Table
+        spec:
+          forProvider:
+            region: us-east-1
+            attributeDefinitions:
+              - attributeName: PK
+                attributeType: S
+              - attributeName: SK
+                attributeType: S
+            keySchema:
+              - attributeName: PK
+                keyType: HASH
+              - attributeName: SK
+                keyType: RANGE
+            globalSecondaryIndexes:
+              - indexName: GSI1
+                keySchema:
+                  - attributeName: SK
+                    keyType: HASH
+                  - attributeName: PK
+                    keyType: RANGE
+                projection:
+                  projectionType: ALL
+                provisionedThroughput:
+                  readCapacityUnits: 5
+                  writeCapacityUnits: 5
+            provisionedThroughput:
+              readCapacityUnits: 5
+              writeCapacityUnits: 5
+            streamSpecification:
+              streamEnabled: true
+              streamViewType: NEW_AND_OLD_IMAGES
+            tags:
+              Environment: production
+              Name: global-config
+          providerConfigRef:
+            name: aws-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.primaryRegion
+          toFieldPath: spec.forProvider.region
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.environmentTag
+          toFieldPath: spec.forProvider.tags.Environment
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.globalConfigTableName
+          toFieldPath: spec.forProvider.tags.Name
+        - type: ToCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: status.globalConfigTableName
+
+    - name: global-service-discovery
+      base:
+        apiVersion: servicediscovery.aws.crossplane.io/v1alpha1
+        kind: PrivateDnsNamespace
+        spec:
+          forProvider:
+            name: ""
+            description: "Global service discovery namespace for multi-region SaaS"
+            vpc: ""
+            region: us-east-1
+            tags:
+              Environment: production
+          providerConfigRef:
+            name: aws-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.serviceDiscoveryNamespace
+          toFieldPath: spec.forProvider.name
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.primaryRegion
+          toFieldPath: spec.forProvider.region
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.primaryVpcId
+          toFieldPath: spec.forProvider.vpc
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.environmentTag
+          toFieldPath: spec.forProvider.tags.Environment
+        - type: ToCompositeFieldPath
+          fromFieldPath: status.atProvider.id
+          toFieldPath: status.serviceDiscoveryId
+
+    - name: cloudfront-distribution
+      base:
+        apiVersion: cloudfront.aws.crossplane.io/v1alpha1
+        kind: Distribution
+        spec:
+          forProvider:
+            enabled: true
+            priceClass: PriceClass_100
+            aliases:
+              - ""
+            comment: "Global CDN for SaaS platform"
+            origins:
+              - domainName: ""
+                id: default-origin
+                customOriginConfig:
+                  httpPort: 80
+                  httpsPort: 443
+                  originProtocolPolicy: https-only
+                  originSslProtocols:
+                    - TLSv1.2
+            defaultCacheBehavior:
+              targetOriginId: default-origin
+              viewerProtocolPolicy: redirect-to-https
+              allowedMethods:
+                - GET
+                - HEAD
+                - OPTIONS
+                - PUT
+                - POST
+                - PATCH
+                - DELETE
+              cachedMethods:
+                - GET
+                - HEAD
+              forwardedValues:
+                queryString: true
+                cookies:
+                  forward: all
+                headers:
+                  - Host
+                  - Origin
+                  - Authorization
+            viewerCertificateArn: ""
+            tags:
+              Environment: production
+          providerConfigRef:
+            name: aws-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.baseDomain
+          toFieldPath: spec.forProvider.aliases[0]
+          transforms:
+            - type: string
+              string:
+                fmt: "api.%s"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.apiGatewayDomain
+          toFieldPath: spec.forProvider.origins[0].domainName
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.certificateArn
+          toFieldPath: spec.forProvider.viewerCertificateArn
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.environmentTag
+          toFieldPath: spec.forProvider.tags.Environment
+        - type: ToCompositeFieldPath
+          fromFieldPath: status.atProvider.domainName
+          toFieldPath: status.cdnDomainName

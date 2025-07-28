@@ -1,0 +1,301 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: security-cells.aws.prism-platform.example.com
+  labels:
+    provider: aws
+    cellType: security
+spec:
+  compositeTypeRef:
+    apiVersion: prism-platform.example.com/v1alpha1
+    kind: Cell
+  writeConnectionSecretsToNamespace: crossplane-system
+  patchSets:
+    - name: common-labels
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.labels
+  resources:
+    # Kubernetes namespace resource for the security cell
+    - name: namespace
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: "security-cell"
+                labels:
+                  app: prism-platform
+                  cellType: security
+                  managed-by: crossplane
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellType
+          toFieldPath: spec.forProvider.manifest.metadata.labels.cellType
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.labels.cell-instance
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Deployment for the authentication service
+    - name: auth-service
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: "auth-service"
+                namespace: "security-cell"
+                labels:
+                  app: prism-platform
+                  component: auth-service
+                  cellType: security
+                  managed-by: crossplane
+              spec:
+                replicas: 2
+                selector:
+                  matchLabels:
+                    app: prism-platform
+                    component: auth-service
+                template:
+                  metadata:
+                    labels:
+                      app: prism-platform
+                      component: auth-service
+                  spec:
+                    containers:
+                    - name: auth-service
+                      image: nginx:alpine  # Placeholder, replace with actual auth service image
+                      ports:
+                      - containerPort: 8080
+                      env:
+                      - name: JWT_SECRET
+                        valueFrom:
+                          secretKeyRef:
+                            name: auth-secrets
+                            key: jwt-secret
+                      - name: DATABASE_URL
+                        value: "postgresql://postgres:postgres@data-db-service.data-cell:5432/prism_platform"
+                      resources:
+                        limits:
+                          cpu: "8"
+                          memory: "32Gi"
+                        requests:
+                          cpu: "500m"
+                          memory: "512Mi"
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.resources.cpu
+          toFieldPath: spec.forProvider.manifest.spec.template.spec.containers[0].resources.requests.cpu
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.resources.memory
+          toFieldPath: spec.forProvider.manifest.spec.template.spec.containers[0].resources.requests.memory
+
+    # Deployment for the secret management service
+    - name: secrets-manager
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: "secrets-manager"
+                namespace: "security-cell"
+                labels:
+                  app: prism-platform
+                  component: secrets-manager
+                  cellType: security
+                  managed-by: crossplane
+              spec:
+                replicas: 1
+                selector:
+                  matchLabels:
+                    app: prism-platform
+                    component: secrets-manager
+                template:
+                  metadata:
+                    labels:
+                      app: prism-platform
+                      component: secrets-manager
+                  spec:
+                    containers:
+                    - name: secrets-manager
+                      image: vault:latest  # HashiCorp Vault for secrets management
+                      ports:
+                      - containerPort: 8200
+                      env:
+                      - name: VAULT_DEV_ROOT_TOKEN_ID
+                        value: "dev-only-token"
+                      - name: VAULT_DEV_LISTEN_ADDRESS
+                        value: "0.0.0.0:8200"
+                      resources:
+                        limits:
+                          cpu: "8"
+                          memory: "32Gi"
+                        requests:
+                          cpu: "500m"
+                          memory: "512Mi"
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.resources.cpu
+          toFieldPath: spec.forProvider.manifest.spec.template.spec.containers[0].resources.requests.cpu
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.resources.memory
+          toFieldPath: spec.forProvider.manifest.spec.template.spec.containers[0].resources.requests.memory
+
+    # Secret for authentication service
+    - name: auth-secrets
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: "auth-secrets"
+                namespace: "security-cell"
+                labels:
+                  app: prism-platform
+                  component: auth-secrets
+                  cellType: security
+                  managed-by: crossplane
+              type: Opaque
+              data:
+                jwt-secret: "c2VjcmV0LWtleS1mb3ItZGV2ZWxvcG1lbnQtb25seQ=="  # base64 encoded "secret-key-for-development-only"
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Service for authentication service
+    - name: auth-service-svc
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: "auth-service"
+                namespace: "security-cell"
+                labels:
+                  app: prism-platform
+                  component: auth-service
+                  cellType: security
+                  managed-by: crossplane
+              spec:
+                ports:
+                - port: 8080
+                  targetPort: 8080
+                  protocol: TCP
+                  name: http
+                selector:
+                  app: prism-platform
+                  component: auth-service
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Service for secrets manager
+    - name: secrets-manager-svc
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: "secrets-manager"
+                namespace: "security-cell"
+                labels:
+                  app: prism-platform
+                  component: secrets-manager
+                  cellType: security
+                  managed-by: crossplane
+              spec:
+                ports:
+                - port: 8200
+                  targetPort: 8200
+                  protocol: TCP
+                  name: http
+                selector:
+                  app: prism-platform
+                  component: secrets-manager
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"

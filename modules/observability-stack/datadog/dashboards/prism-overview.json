@@ -1,0 +1,58 @@
+{
+  "title": "Prism Platform Overview",
+  "description": "High-level overview of Prism platform health and performance",
+  "widgets": [
+    {
+      "id": 1,
+      "definition": {
+        "type": "timeseries",
+        "title": "Cell CPU Utilization",
+        "requests": [
+          {
+            "q": "avg:prism.cell.cpu.utilization{*} by {cell_type}"
+          }
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "definition": {
+        "type": "timeseries", 
+        "title": "Cell Memory Utilization",
+        "requests": [
+          {
+            "q": "avg:prism.cell.memory.utilization{*} by {cell_type}"
+          }
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "definition": {
+        "type": "timeseries",
+        "title": "Request Latency",
+        "requests": [
+          {
+            "q": "avg:prism.cell.request.latency{*} by {cell_type}"
+          }
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "definition": {
+        "type": "timeseries",
+        "title": "Error Rate",
+        "requests": [
+          {
+            "q": "avg:prism.cell.error.rate{*} by {cell_type}"
+          }
+        ]
+      }
+    }
+  ],
+  "layout_type": "ordered",
+  "is_read_only": false,
+  "notify_list": [],
+  "tags": ["platform:prism", "environment:production"]
+} 

@@ -1,0 +1,270 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: security-cell-composition
+  labels:
+    provider: multi-cloud
+    cell-type: security
+    prism.io/version: v1.2
+spec:
+  compositeTypeRef:
+    apiVersion: prism.io/v1alpha1
+    kind: Cell
+  writeConnectionSecretsToNamespace: crossplane-system
+  patchSets:
+  - name: common-labels
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: metadata.labels
+  - name: resource-sizing
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.resources.cpu
+      toFieldPath: spec.forProvider.manifest.spec.containers[0].resources.requests.cpu
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.resources.memory
+      toFieldPath: spec.forProvider.manifest.spec.containers[0].resources.requests.memory
+  resources:
+    # Create namespace for security cell
+    - name: namespace
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: "security-cell"
+                labels:
+                  prism.io/cell-type: security
+                  prism.io/managed-by: crossplane
+                  prism.io/security-zone: high-security
+                  istio-injection: enabled
+                  pod-security.kubernetes.io/enforce: restricted
+                  pod-security.kubernetes.io/audit: restricted
+                  pod-security.kubernetes.io/warn: restricted
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create strict resource quota for security workloads
+    - name: resource-quota
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: ResourceQuota
+              metadata:
+                name: security-cell-quota
+                labels:
+                  prism.io/cell-type: security
+              spec:
+                hard:
+                  requests.cpu: "2"
+                  limits.cpu: "4"
+                  requests.memory: "8Gi"
+                  limits.memory: "16Gi"
+                  pods: "50"
+                  secrets: "10"
+                  configmaps: "10"
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create strict network policy for security isolation
+    - name: network-policy
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: networking.k8s.io/v1
+              kind: NetworkPolicy
+              metadata:
+                name: security-cell-network-policy
+                labels:
+                  prism.io/cell-type: security
+              spec:
+                podSelector:
+                  matchLabels:
+                    prism.io/cell-type: security
+                policyTypes:
+                - Ingress
+                - Egress
+                ingress:
+                - from:
+                  - namespaceSelector:
+                      matchLabels:
+                        prism.io/cell-type: channel  # Only channel cells can access security services
+                  ports:
+                  - protocol: TCP
+                    port: 8443  # HTTPS for security services
+                egress:
+                - to:
+                  - namespaceSelector:
+                      matchLabels:
+                        prism.io/cell-type: data  # Access data for audit logs
+                  ports:
+                  - protocol: TCP
+                    port: 5432
+                - to: []  # External identity providers, etc.
+                  ports:
+                  - protocol: TCP
+                    port: 443
+                  - protocol: TCP
+                    port: 53  # DNS
+                  - protocol: UDP
+                    port: 53
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create security service for authentication/authorization
+    - name: auth-service
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: auth-service
+                labels:
+                  prism.io/cell-type: security
+                  app: auth-service
+              spec:
+                selector:
+                  app: auth-service
+                ports:
+                - name: https
+                  port: 8443
+                  targetPort: 8443
+                - name: grpc
+                  port: 9443
+                  targetPort: 9443
+                type: ClusterIP
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create policy enforcement service
+    - name: policy-service
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: policy-service
+                labels:
+                  prism.io/cell-type: security
+                  app: policy-service
+              spec:
+                selector:
+                  app: policy-service
+                ports:
+                - name: https
+                  port: 8444
+                  targetPort: 8444
+                - name: webhook
+                  port: 9444
+                  targetPort: 9444
+                type: ClusterIP
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create configmap for security cell configuration
+    - name: security-config
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: security-cell-config
+                labels:
+                  prism.io/cell-type: security
+              data:
+                cell-type: "security"
+                workload-types: "authentication,authorization,policy-enforcement,audit,compliance"
+                resource-profile: "security-hardened"
+                scaling-behavior: "horizontal"
+                security-level: "high"
+                encryption-required: "true"
+                audit-logging: "enabled"
+                compliance-frameworks: "soc2,gdpr,hipaa"
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.data.cell-id 

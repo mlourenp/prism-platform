@@ -1,0 +1,564 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: cellobservabilities.saas.example.com
+spec:
+  group: saas.example.com
+  names:
+    kind: CellObservability
+    plural: cellobservabilities
+  claimNames:
+    kind: CellObservabilityClaim
+    plural: cellobservabilityclaims
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                cellRef:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                  required: [name]
+                metrics:
+                  type: object
+                  properties:
+                    enabled:
+                      type: boolean
+                      default: true
+                    prometheus:
+                      type: object
+                      properties:
+                        retention:
+                          type: string
+                          default: "15d"
+                        scrapeInterval:
+                          type: string
+                          default: "30s"
+                        resources:
+                          type: object
+                          properties:
+                            requests:
+                              type: object
+                              properties:
+                                cpu:
+                                  type: string
+                                  default: "200m"
+                                memory:
+                                  type: string
+                                  default: "512Mi"
+                              required: []
+                            limits:
+                              type: object
+                              properties:
+                                cpu:
+                                  type: string
+                                  default: "1"
+                                memory:
+                                  type: string
+                                  default: "2Gi"
+                              required: []
+                          required: []
+                        storage:
+                          type: object
+                          properties:
+                            size:
+                              type: string
+                              default: "50Gi"
+                            storageClass:
+                              type: string
+                          required: []
+                        externalUrl:
+                          type: string
+                          description: "External URL for Prometheus, if any"
+                        federation:
+                          type: object
+                          properties:
+                            enabled:
+                              type: boolean
+                              default: true
+                            endpoints:
+                              type: array
+                              items:
+                                type: string
+                          required: [enabled]
+                      required: []
+                    customMetrics:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                          type:
+                            type: string
+                            enum: [counter, gauge, histogram, summary]
+                          help:
+                            type: string
+                          labels:
+                            type: array
+                            items:
+                              type: string
+                          buckets:
+                            type: array
+                            items:
+                              type: number
+                        required: [name, type, help]
+                  required: [enabled]
+                logging:
+                  type: object
+                  properties:
+                    enabled:
+                      type: boolean
+                      default: true
+                    fluentd:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        resources:
+                          type: object
+                          properties:
+                            requests:
+                              type: object
+                              properties:
+                                cpu:
+                                  type: string
+                                  default: "100m"
+                                memory:
+                                  type: string
+                                  default: "256Mi"
+                              required: []
+                            limits:
+                              type: object
+                              properties:
+                                cpu:
+                                  type: string
+                                  default: "500m"
+                                memory:
+                                  type: string
+                                  default: "1Gi"
+                              required: []
+                          required: []
+                      required: [enabled]
+                    elasticsearch:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        host:
+                          type: string
+                        indexPrefix:
+                          type: string
+                          default: "saas-platform"
+                        retention:
+                          type: string
+                          default: "30d"
+                      required: [enabled]
+                    logLevel:
+                      type: string
+                      enum: [trace, debug, info, warn, error]
+                      default: "info"
+                    includePatterns:
+                      type: array
+                      items:
+                        type: string
+                    excludePatterns:
+                      type: array
+                      items:
+                        type: string
+                  required: [enabled]
+                tracing:
+                  type: object
+                  properties:
+                    enabled:
+                      type: boolean
+                      default: true
+                    jaeger:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        resources:
+                          type: object
+                          properties:
+                            requests:
+                              type: object
+                              properties:
+                                cpu:
+                                  type: string
+                                  default: "200m"
+                                memory:
+                                  type: string
+                                  default: "512Mi"
+                              required: []
+                            limits:
+                              type: object
+                              properties:
+                                cpu:
+                                  type: string
+                                  default: "1"
+                                memory:
+                                  type: string
+                                  default: "2Gi"
+                              required: []
+                          required: []
+                        storage:
+                          type: object
+                          properties:
+                            size:
+                              type: string
+                              default: "20Gi"
+                            storageClass:
+                              type: string
+                          required: []
+                        samplingRate:
+                          type: number
+                          default: 0.1
+                      required: [enabled]
+                    opentelemetry:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: false
+                        endpoint:
+                          type: string
+                      required: [enabled]
+                    samplingRules:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          service:
+                            type: string
+                            description: "Service name to match"
+                          operation:
+                            type: string
+                            description: "Operation name to match"
+                          percentage:
+                            type: number
+                            minimum: 0
+                            maximum: 1
+                            default: 0.1
+                        required: [service, percentage]
+                  required: [enabled]
+                alerting:
+                  type: object
+                  properties:
+                    enabled:
+                      type: boolean
+                      default: true
+                    alertmanager:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        resources:
+                          type: object
+                          properties:
+                            requests:
+                              type: object
+                              properties:
+                                cpu:
+                                  type: string
+                                  default: "100m"
+                                memory:
+                                  type: string
+                                  default: "256Mi"
+                              required: []
+                            limits:
+                              type: object
+                              properties:
+                                cpu:
+                                  type: string
+                                  default: "500m"
+                                memory:
+                                  type: string
+                                  default: "1Gi"
+                              required: []
+                          required: []
+                        storage:
+                          type: object
+                          properties:
+                            size:
+                              type: string
+                              default: "2Gi"
+                            storageClass:
+                              type: string
+                          required: []
+                      required: [enabled]
+                    receivers:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                          email:
+                            type: object
+                            properties:
+                              to:
+                                type: string
+                              from:
+                                type: string
+                              smarthost:
+                                type: string
+                            required: []
+                          slack:
+                            type: object
+                            properties:
+                              channel:
+                                type: string
+                              apiUrl:
+                                type: string
+                            required: []
+                          webhook:
+                            type: object
+                            properties:
+                              url:
+                                type: string
+                            required: []
+                          pagerduty:
+                            type: object
+                            properties:
+                              serviceKey:
+                                type: string
+                            required: []
+                        required: [name]
+                    rules:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                          expr:
+                            type: string
+                          for:
+                            type: string
+                            default: "5m"
+                          severity:
+                            type: string
+                            enum: [info, warning, critical]
+                            default: "warning"
+                          summary:
+                            type: string
+                          description:
+                            type: string
+                          runbook:
+                            type: string
+                          labels:
+                            type: object
+                            additionalProperties:
+                              type: string
+                        required: [name, expr, severity]
+                    routingTree:
+                      type: object
+                      properties:
+                        routes:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              match:
+                                type: object
+                                additionalProperties:
+                                  type: string
+                              receiver:
+                                type: string
+                              groupBy:
+                                type: array
+                                items:
+                                  type: string
+                              groupWait:
+                                type: string
+                              groupInterval:
+                                type: string
+                              repeatInterval:
+                                type: string
+                            required: [receiver]
+                      required: []
+                  required: [enabled]
+                dashboards:
+                  type: object
+                  properties:
+                    enabled:
+                      type: boolean
+                      default: true
+                    grafana:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        resources:
+                          type: object
+                          properties:
+                            requests:
+                              type: object
+                              properties:
+                                cpu:
+                                  type: string
+                                  default: "100m"
+                                memory:
+                                  type: string
+                                  default: "256Mi"
+                              required: []
+                            limits:
+                              type: object
+                              properties:
+                                cpu:
+                                  type: string
+                                  default: "500m"
+                                memory:
+                                  type: string
+                                  default: "1Gi"
+                              required: []
+                          required: []
+                        storage:
+                          type: object
+                          properties:
+                            size:
+                              type: string
+                              default: "2Gi"
+                            storageClass:
+                              type: string
+                          required: []
+                        externalUrl:
+                          type: string
+                        adminPassword:
+                          type: string
+                      required: [enabled]
+                    customDashboards:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                          title:
+                            type: string
+                          description:
+                            type: string
+                          panels:
+                            type: array
+                            items:
+                              type: object
+                          datasource:
+                            type: string
+                            default: "Prometheus"
+                        required: [name, title]
+                  required: [enabled]
+                serviceMonitoring:
+                  type: object
+                  properties:
+                    enabled:
+                      type: boolean
+                      default: true
+                    availabilityProbes:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                          endpoint:
+                            type: string
+                          interval:
+                            type: string
+                            default: "30s"
+                          timeout:
+                            type: string
+                            default: "5s"
+                          thresholds:
+                            type: object
+                            properties:
+                              success:
+                                type: integer
+                                default: 99
+                              latency:
+                                type: string
+                                default: "200ms"
+                            required: []
+                        required: [name, endpoint]
+                  required: [enabled]
+                retention:
+                  type: object
+                  properties:
+                    metrics:
+                      type: string
+                      default: "15d"
+                    logs:
+                      type: string
+                      default: "30d"
+                    traces:
+                      type: string
+                      default: "7d"
+                  required: []
+              required: [cellRef]
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum: [Pending, Provisioning, Running, Failed]
+                endpoints:
+                  type: object
+                  properties:
+                    prometheus:
+                      type: string
+                    alertmanager:
+                      type: string
+                    grafana:
+                      type: string
+                    jaeger:
+                      type: string
+                    kibana:
+                      type: string
+                health:
+                  type: object
+                  properties:
+                    prometheus:
+                      type: string
+                      enum: [Healthy, Degraded, Unhealthy]
+                    alertmanager:
+                      type: string
+                      enum: [Healthy, Degraded, Unhealthy]
+                    grafana:
+                      type: string
+                      enum: [Healthy, Degraded, Unhealthy]
+                    jaeger:
+                      type: string
+                      enum: [Healthy, Degraded, Unhealthy]
+                    logging:
+                      type: string
+                      enum: [Healthy, Degraded, Unhealthy]
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                      reason:
+                        type: string
+                      message:
+                        type: string
+  conversion:
+    strategy: None

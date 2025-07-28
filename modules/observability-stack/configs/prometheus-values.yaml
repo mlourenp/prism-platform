@@ -1,0 +1,283 @@
+# Prometheus configuration for Prism Platform
+# This configuration provides comprehensive monitoring for cell-based infrastructure
+
+defaultRules:
+  create: true
+  rules:
+    alertmanager: true
+    etcd: true
+    general: true
+    k8s: true
+    kubeApiserver: true
+    kubePrometheusNodeAlerting: true
+    kubePrometheusNodeRecording: true
+    kubernetesAbsent: true
+    kubernetesApps: true
+    kubernetesResources: true
+    kubernetesStorage: true
+    kubernetesSystem: true
+    node: true
+    prometheus: true
+    prometheusOperator: true
+
+global:
+  rbac:
+    create: true
+    pspEnabled: false
+
+alertmanager:
+  enabled: true
+  ingress:
+    enabled: false
+  alertmanagerSpec:
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: fast-ssd
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+
+grafana:
+  enabled: true
+  adminPassword: "prism-admin"
+  ingress:
+    enabled: false
+  
+  persistence:
+    enabled: true
+    storageClassName: fast-ssd
+    size: 10Gi
+  
+  grafana.ini:
+    server:
+      domain: "prism-platform.local"
+      root_url: "%(protocol)s://%(domain)s/grafana/"
+      serve_from_sub_path: true
+    
+    feature_toggles:
+      enable: "tempoSearch,traceToMetrics"
+  
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      folder: /tmp/dashboards
+      folderAnnotation: grafana_folder
+      searchNamespace: ALL
+      provider:
+        allowUiUpdates: true
+        foldersFromFilesStructure: true
+    
+    datasources:
+      enabled: true
+      defaultDatasourceEnabled: true
+      label: grafana_datasource
+      searchNamespace: ALL
+
+  additionalDataSources:
+    - name: Tempo
+      type: tempo
+      url: http://tempo.prism-observability.svc.cluster.local:3100
+      uid: tempo
+      access: proxy
+      basicAuth: false
+      isDefault: false
+      editable: true
+    
+    - name: Loki
+      type: loki
+      url: http://loki.prism-observability.svc.cluster.local:3100
+      uid: loki
+      access: proxy
+      basicAuth: false
+      isDefault: false
+      editable: true
+
+prometheus:
+  enabled: true
+  ingress:
+    enabled: false
+  
+  prometheusSpec:
+    replicas: 1
+    retention: 15d
+    retentionSize: "45GB"
+    
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: fast-ssd
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 50Gi
+    
+    resources:
+      requests:
+        cpu: 500m
+        memory: 2Gi
+      limits:
+        cpu: 2000m
+        memory: 8Gi
+    
+    serviceMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorSelector:
+      matchLabels:
+        prism.io/monitoring: "enabled"
+    
+    podMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelector:
+      matchLabels:
+        prism.io/monitoring: "enabled"
+    
+    ruleSelectorNilUsesHelmValues: false
+    ruleSelector:
+      matchLabels:
+        prism.io/monitoring: "enabled"
+    
+    additionalScrapeConfigs:
+      # Prism cell services discovery
+      - job_name: 'prism-cells'
+        kubernetes_sd_configs:
+          - role: service
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_namespace]
+            action: keep
+            regex: '.*-cell'
+          - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_service_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - source_labels: [__meta_kubernetes_service_label_prism_io_cell_type]
+            action: replace
+            target_label: cell_type
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: cell_namespace
+          - source_labels: [__meta_kubernetes_service_name]
+            action: replace
+            target_label: service_name
+      
+      # Cell pods with prometheus annotations
+      - job_name: 'prism-cell-pods'
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_namespace]
+            action: keep
+            regex: '.*-cell'
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - source_labels: [__meta_kubernetes_pod_label_prism_io_cell_type]
+            action: replace
+            target_label: cell_type
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: cell_namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: pod_name
+
+      # eBPF metrics from Cilium/Tetragon
+      - job_name: 'ebpf-metrics'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - kube-system
+                - cilium-system
+                - tetragon-system
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+            action: keep
+            regex: '(cilium|tetragon|falco)'
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+
+prometheusOperator:
+  enabled: true
+  manageCrds: true
+  createCustomResource: true
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+nodeExporter:
+  enabled: true
+
+kubeStateMetrics:
+  enabled: true
+
+kube-state-metrics:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+# ServiceMonitors for Prism components
+additionalServiceMonitors:
+  - name: prism-platform-cells
+    selector:
+      matchLabels:
+        prism.io/monitoring: "enabled"
+    namespaceSelector:
+      any: true
+    endpoints:
+      - port: metrics
+        interval: 15s
+        path: /metrics
+        honorLabels: true
+    targetLabels:
+      - prism.io/cell-type
+      - prism.io/component
+
+  - name: prism-ebpf-components
+    selector:
+      matchLabels:
+        app.kubernetes.io/component: ebpf
+    namespaceSelector:
+      matchNames:
+        - kube-system
+        - cilium-system
+        - tetragon-system
+    endpoints:
+      - port: metrics
+        interval: 30s 

@@ -1,0 +1,147 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: prism-platform-cell-1
+  labels:
+    istio-injection: enabled
+    app: prism-platform
+    cell: cell-1
+    region: us-east-1
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: database-credentials
+  namespace: prism-platform-cell-1
+type: Opaque
+data:
+  username: cG9zdGdyZXM=  # postgres
+  password: Y2hhbmdlbWU=  # changeme
+  url: cG9zdGdyZXNxbDovL3Bvc3RncmVzOmNoYW5nZW1lQGRhdGFiYXNlOjU0MzIvY29ycmVjdGl2ZV9kcmlmdA==  # postgresql://postgres:changeme@database:5432/prism_platform
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rabbitmq-credentials
+  namespace: prism-platform-cell-1
+type: Opaque
+data:
+  username: Z3Vlc3Q=  # guest
+  password: Z3Vlc3Q=  # guest
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: api-ingress
+  namespace: prism-platform-cell-1
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  tls:
+  - hosts:
+    - api.prism-platform.example.com
+    secretName: prism-platform-tls
+  rules:
+  - host: api.prism-platform.example.com
+    http:
+      paths:
+      - path: /api(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: api-service
+            port:
+              number: 8000
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: api-vs
+  namespace: prism-platform-cell-1
+spec:
+  hosts:
+  - "api.prism-platform.example.com"
+  gateways:
+  - istio-system/ingress-gateway
+  http:
+  - match:
+    - uri:
+        prefix: /api
+    route:
+    - destination:
+        host: api-service
+        port:
+          number: 8000
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: api-service-dr
+  namespace: prism-platform-cell-1
+spec:
+  host: api-service
+  trafficPolicy:
+    loadBalancer:
+      simple: ROUND_ROBIN
+    connectionPool:
+      tcp:
+        maxConnections: 100
+        connectTimeout: 30ms
+      http:
+        http2MaxRequests: 1000
+        maxRequestsPerConnection: 10
+    outlierDetection:
+      consecutive5xxErrors: 5
+      interval: 30s
+      baseEjectionTime: 30s
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: api-auth-policy
+  namespace: prism-platform-cell-1
+spec:
+  selector:
+    matchLabels:
+      app: prism-platform
+      component: api-service
+  rules:
+  - from:
+    - source:
+        namespaces: ["istio-system"]
+    to:
+    - operation:
+        methods: ["GET", "POST", "PUT", "DELETE"]
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: cell-quota
+  namespace: prism-platform-cell-1
+spec:
+  hard:
+    pods: "100"
+    requests.cpu: "20"
+    requests.memory: 40Gi
+    limits.cpu: "40"
+    limits.memory: 80Gi
+    persistentvolumeclaims: "20"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: cell-limit-range
+  namespace: prism-platform-cell-1
+spec:
+  limits:
+  - default:
+      cpu: 500m
+      memory: 512Mi
+    defaultRequest:
+      cpu: 200m
+      memory: 256Mi
+    type: Container

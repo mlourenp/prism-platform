@@ -1,0 +1,324 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: legacy-cell-composition
+  labels:
+    provider: multi-cloud
+    cell-type: legacy
+    prism.io/version: v1.2
+spec:
+  compositeTypeRef:
+    apiVersion: prism.io/v1alpha1
+    kind: Cell
+  writeConnectionSecretsToNamespace: crossplane-system
+  patchSets:
+  - name: common-labels
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: metadata.labels
+  - name: resource-sizing
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.resources.cpu
+      toFieldPath: spec.forProvider.manifest.spec.containers[0].resources.requests.cpu
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.resources.memory
+      toFieldPath: spec.forProvider.manifest.spec.containers[0].resources.requests.memory
+  resources:
+    # Create namespace for legacy cell
+    - name: namespace
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: "legacy-cell"
+                labels:
+                  prism.io/cell-type: legacy
+                  prism.io/managed-by: crossplane
+                  prism.io/migration-status: in-progress
+                  istio-injection: enabled  # For gradual service mesh adoption
+                  pod-security.kubernetes.io/enforce: baseline  # Relaxed for legacy apps
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create generous resource quota for legacy workloads
+    - name: resource-quota
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: ResourceQuota
+              metadata:
+                name: legacy-cell-quota
+                labels:
+                  prism.io/cell-type: legacy
+              spec:
+                hard:
+                  requests.cpu: "8"
+                  limits.cpu: "16"
+                  requests.memory: "32Gi"
+                  limits.memory: "64Gi"
+                  pods: "150"
+                  services: "25"
+                  persistentvolumeclaims: "20"
+                  requests.storage: "500Gi"
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create permissive network policy for legacy compatibility
+    - name: network-policy
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: networking.k8s.io/v1
+              kind: NetworkPolicy
+              metadata:
+                name: legacy-cell-network-policy
+                labels:
+                  prism.io/cell-type: legacy
+              spec:
+                podSelector:
+                  matchLabels:
+                    prism.io/cell-type: legacy
+                policyTypes:
+                - Ingress
+                - Egress
+                ingress:
+                - from:
+                  - namespaceSelector:
+                      matchLabels:
+                        prism.io/cell-type: channel  # Channel cells for API access
+                  - namespaceSelector:
+                      matchLabels:
+                        prism.io/cell-type: integration  # Integration for data flows
+                  - namespaceSelector:
+                      matchLabels:
+                        prism.io/cell-type: legacy  # Legacy-to-legacy communication
+                  ports:
+                  - protocol: TCP
+                    port: 8080  # HTTP
+                  - protocol: TCP
+                    port: 8443  # HTTPS
+                  - protocol: TCP
+                    port: 5432  # Database
+                  - protocol: TCP
+                    port: 1521  # Oracle
+                  - protocol: TCP
+                    port: 1433  # SQL Server
+                egress:
+                - to:
+                  - namespaceSelector:
+                      matchLabels:
+                        prism.io/cell-type: data  # Legacy databases
+                - to:
+                  - namespaceSelector:
+                      matchLabels:
+                        prism.io/cell-type: external  # Legacy integrations
+                - to: []  # Allow external access for legacy dependencies
+                  ports:
+                  - protocol: TCP
+                    port: 443
+                  - protocol: TCP
+                    port: 80
+                  - protocol: TCP
+                    port: 25   # SMTP
+                  - protocol: TCP
+                    port: 587  # SMTP TLS
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create legacy application service
+    - name: legacy-app-service
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: legacy-application
+                labels:
+                  prism.io/cell-type: legacy
+                  app: legacy-application
+              spec:
+                selector:
+                  app: legacy-application
+                ports:
+                - name: http
+                  port: 8080
+                  targetPort: 8080
+                - name: https
+                  port: 8443
+                  targetPort: 8443
+                - name: database
+                  port: 5432
+                  targetPort: 5432
+                type: ClusterIP
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create database migration service
+    - name: migration-service
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: migration-service
+                labels:
+                  prism.io/cell-type: legacy
+                  app: migration-service
+              spec:
+                selector:
+                  app: migration-service
+                ports:
+                - name: http
+                  port: 8081
+                  targetPort: 8081
+                - name: monitoring
+                  port: 9091
+                  targetPort: 9091
+                type: ClusterIP
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create persistent storage for legacy data
+    - name: legacy-storage-pvc
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: PersistentVolumeClaim
+              metadata:
+                name: legacy-storage-pvc
+                labels:
+                  prism.io/cell-type: legacy
+              spec:
+                accessModes:
+                  - ReadWriteOnce
+                resources:
+                  requests:
+                    storage: 200Gi
+                storageClassName: standard  # Traditional storage for legacy apps
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create configmap for legacy cell configuration
+    - name: legacy-config
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: legacy-cell-config
+                labels:
+                  prism.io/cell-type: legacy
+              data:
+                cell-type: "legacy"
+                workload-types: "monolith,legacy-database,file-based-integration,batch-processing"
+                resource-profile: "traditional"
+                scaling-behavior: "vertical"
+                migration-strategy: "gradual-modernization"
+                security-posture: "baseline"
+                backup-required: "true"
+                downtime-tolerance: "high"
+                performance-expectations: "best-effort"
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.data.cell-id 

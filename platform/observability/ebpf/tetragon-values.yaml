@@ -1,0 +1,61 @@
+# Tetragon configuration for Kubernetes
+tetragon:
+  image:
+    repository: cilium/tetragon
+    tag: v0.10.0
+  operator:
+    image:
+      repository: cilium/tetragon-operator
+      tag: v0.10.0
+  gops:
+    enabled: true
+  export:
+    enabled: true
+    config:
+      fileRotation: true
+      fileRotationMaxFiles: 5
+      fileRotationMaxSize: 100
+      fileRotationCompress: true
+  tracingPolicy:
+    enabled: true
+    policies:
+      - name: k8s-api-server
+        spec:
+          kprobes:
+            - call: "security_socket_connect"
+              syscall: true
+              args:
+                - index: 0
+                  type: "sock"
+                - index: 1
+                  type: "sockaddr"
+              selectors:
+                - matchArgs:
+                  - index: 1
+                    operator: "Equal"
+                    values:
+                    - "AF_INET"
+                    - "AF_INET6"
+      - name: container-lifecycle
+        spec:
+          tracepoints:
+            - subsystem: "sched"
+              event: "sched_process_exit"
+              args:
+                - index: 0
+                  type: "int"
+                - index: 1
+                  type: "int"
+              selectors:
+                - matchPIDs:
+                  - operator: "In"
+                    values:
+                    - 1
+  exportAllowList: "{}"
+  btf:
+    # Automatically attempt to get BTF from the container image
+    autoMount:
+      enabled: true
+      # Fallback to using BTF from the nodes
+      hostPath:
+        enabled: true

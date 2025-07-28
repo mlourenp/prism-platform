@@ -1,0 +1,254 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: data-cell-composition
+  labels:
+    provider: multi-cloud
+    cell-type: data
+    prism.io/version: v1.2
+spec:
+  compositeTypeRef:
+    apiVersion: prism.io/v1alpha1
+    kind: Cell
+  writeConnectionSecretsToNamespace: crossplane-system
+  patchSets:
+  - name: common-labels
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: metadata.labels
+  - name: resource-sizing
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.resources.cpu
+      toFieldPath: spec.forProvider.manifest.spec.containers[0].resources.requests.cpu
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.resources.memory
+      toFieldPath: spec.forProvider.manifest.spec.containers[0].resources.requests.memory
+  resources:
+    # Create namespace for data cell
+    - name: namespace
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: "data-cell"
+                labels:
+                  prism.io/cell-type: data
+                  prism.io/managed-by: crossplane
+                  prism.io/network-zone: internal  # Internal data processing zone
+                  istio-injection: enabled
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create resource quota for data workloads
+    - name: resource-quota
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: ResourceQuota
+              metadata:
+                name: data-cell-quota
+                labels:
+                  prism.io/cell-type: data
+              spec:
+                hard:
+                  requests.cpu: "8"
+                  limits.cpu: "16"
+                  requests.memory: "32Gi"
+                  limits.memory: "64Gi"
+                  persistentvolumeclaims: "10"
+                  requests.storage: "1Ti"
+                  pods: "100"
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create network policy for data isolation
+    - name: network-policy
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: networking.k8s.io/v1
+              kind: NetworkPolicy
+              metadata:
+                name: data-cell-network-policy
+                labels:
+                  prism.io/cell-type: data
+              spec:
+                podSelector:
+                  matchLabels:
+                    prism.io/cell-type: data
+                policyTypes:
+                - Ingress
+                - Egress
+                ingress:
+                - from:
+                  - namespaceSelector:
+                      matchLabels:
+                        prism.io/cell-type: logic  # Allow logic cells to access data
+                  - namespaceSelector:
+                      matchLabels:
+                        prism.io/cell-type: channel  # Allow channel cells for API access
+                  ports:
+                  - protocol: TCP
+                    port: 5432  # PostgreSQL
+                  - protocol: TCP
+                    port: 6379  # Redis
+                  - protocol: TCP
+                    port: 9200  # Elasticsearch
+                egress:
+                - to: []  # Allow all outbound (can be restricted)
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create persistent volume claim for data storage
+    - name: data-storage-pvc
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: PersistentVolumeClaim
+              metadata:
+                name: data-storage-pvc
+                labels:
+                  prism.io/cell-type: data
+              spec:
+                accessModes:
+                  - ReadWriteOnce
+                resources:
+                  requests:
+                    storage: 100Gi
+                storageClassName: fast-ssd
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create data processing service
+    - name: data-processor-service
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: data-processor
+                labels:
+                  prism.io/cell-type: data
+                  app: data-processor
+              spec:
+                selector:
+                  app: data-processor
+                ports:
+                - name: http
+                  port: 8080
+                  targetPort: 8080
+                - name: grpc
+                  port: 9090
+                  targetPort: 9090
+                type: ClusterIP
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create configmap for data cell configuration
+    - name: data-config
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: data-cell-config
+                labels:
+                  prism.io/cell-type: data
+              data:
+                cell-type: "data"
+                workload-types: "database,cache,stream-processing,etl,analytics"
+                resource-profile: "storage-intensive"
+                scaling-behavior: "vertical"
+                data-consistency: "strong"
+                backup-enabled: "true"
+                encryption-at-rest: "true"
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.data.cell-id 

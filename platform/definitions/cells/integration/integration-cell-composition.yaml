@@ -1,0 +1,318 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: integration-cell-composition
+  labels:
+    provider: multi-cloud
+    cell-type: integration
+    prism.io/version: v1.2
+spec:
+  compositeTypeRef:
+    apiVersion: prism.io/v1alpha1
+    kind: Cell
+  writeConnectionSecretsToNamespace: crossplane-system
+  patchSets:
+  - name: common-labels
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: metadata.labels
+  - name: resource-sizing
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.resources.cpu
+      toFieldPath: spec.forProvider.manifest.spec.containers[0].resources.requests.cpu
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.resources.memory
+      toFieldPath: spec.forProvider.manifest.spec.containers[0].resources.requests.memory
+  resources:
+    # Create namespace for integration cell
+    - name: namespace
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: "integration-cell"
+                labels:
+                  prism.io/cell-type: integration
+                  prism.io/managed-by: crossplane
+                  prism.io/network-zone: internal  # Internal orchestration zone
+                  istio-injection: enabled
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create resource quota for integration workloads
+    - name: resource-quota
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: ResourceQuota
+              metadata:
+                name: integration-cell-quota
+                labels:
+                  prism.io/cell-type: integration
+              spec:
+                hard:
+                  requests.cpu: "6"
+                  limits.cpu: "12"
+                  requests.memory: "24Gi"
+                  limits.memory: "48Gi"
+                  pods: "200"
+                  services: "30"
+                  configmaps: "20"
+                  persistentvolumeclaims: "5"
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create network policy for integration communication
+    - name: network-policy
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: networking.k8s.io/v1
+              kind: NetworkPolicy
+              metadata:
+                name: integration-cell-network-policy
+                labels:
+                  prism.io/cell-type: integration
+              spec:
+                podSelector:
+                  matchLabels:
+                    prism.io/cell-type: integration
+                policyTypes:
+                - Ingress
+                - Egress
+                ingress:
+                - from:
+                  - namespaceSelector:
+                      matchLabels:
+                        prism.io/cell-type: channel  # Channel cells trigger workflows
+                  - namespaceSelector:
+                      matchLabels:
+                        prism.io/cell-type: logic    # Logic cells for processing
+                  ports:
+                  - protocol: TCP
+                    port: 8080  # HTTP API
+                  - protocol: TCP
+                    port: 9090  # gRPC
+                  - protocol: TCP
+                    port: 5672  # Message queue
+                egress:
+                - to:
+                  - namespaceSelector:
+                      matchLabels:
+                        prism.io/cell-type: data     # Access data sources
+                - to:
+                  - namespaceSelector:
+                      matchLabels:
+                        prism.io/cell-type: external # Call external services
+                - to:
+                  - namespaceSelector:
+                      matchLabels:
+                        prism.io/cell-type: logic    # Trigger logic workloads
+                  ports:
+                  - protocol: TCP
+                    port: 5432  # Database
+                  - protocol: TCP
+                    port: 6379  # Redis
+                  - protocol: TCP
+                    port: 8080  # HTTP
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create workflow orchestrator service
+    - name: workflow-service
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: workflow-orchestrator
+                labels:
+                  prism.io/cell-type: integration
+                  app: workflow-orchestrator
+              spec:
+                selector:
+                  app: workflow-orchestrator
+                ports:
+                - name: http
+                  port: 8080
+                  targetPort: 8080
+                - name: grpc
+                  port: 9090
+                  targetPort: 9090
+                type: ClusterIP
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create message queue service for async integration
+    - name: message-queue-service
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: message-queue
+                labels:
+                  prism.io/cell-type: integration
+                  app: message-queue
+              spec:
+                selector:
+                  app: message-queue
+                ports:
+                - name: amqp
+                  port: 5672
+                  targetPort: 5672
+                - name: management
+                  port: 15672
+                  targetPort: 15672
+                type: ClusterIP
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create event stream service
+    - name: event-stream-service
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: event-stream
+                labels:
+                  prism.io/cell-type: integration
+                  app: event-stream
+              spec:
+                selector:
+                  app: event-stream
+                ports:
+                - name: kafka
+                  port: 9092
+                  targetPort: 9092
+                - name: schema-registry
+                  port: 8081
+                  targetPort: 8081
+                type: ClusterIP
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create configmap for integration cell configuration
+    - name: integration-config
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: integration-cell-config
+                labels:
+                  prism.io/cell-type: integration
+              data:
+                cell-type: "integration"
+                workload-types: "workflow-orchestration,message-queue,event-streaming,etl,data-pipeline"
+                resource-profile: "balanced"
+                scaling-behavior: "horizontal"
+                async-processing: "enabled"
+                dead-letter-queue: "enabled"
+                retry-mechanism: "exponential-backoff"
+                circuit-breaker: "enabled"
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.data.cell-id 

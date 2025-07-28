@@ -1,0 +1,49 @@
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: prism-platform-mgmt
+  region: us-west-2
+
+managedNodeGroups:
+  - name: compute-optimized-4xlarge
+    instanceType: m5.4xlarge
+    desiredCapacity: 1
+    minSize: 1
+    maxSize: 3
+    volumeSize: 100
+    labels:
+      workload-type: compute
+      cgroupVersion: v2
+      priority: high
+    tags:
+      k8s.io/cluster-autoscaler/enabled: "true"
+      k8s.io/cluster-autoscaler/prism-platform-mgmt: "owned"
+
+  - name: observability-optimized
+    instanceType: m5.2xlarge
+    desiredCapacity: 1
+    minSize: 1
+    maxSize: 2
+    volumeSize: 100
+    labels:
+      workload-type: observability
+      cgroupVersion: v2
+      priority: high
+    tags:
+      k8s.io/cluster-autoscaler/enabled: "true"
+      k8s.io/cluster-autoscaler/prism-platform-mgmt: "owned"
+
+  - name: channel-services
+    instanceType: m5.2xlarge
+    desiredCapacity: 1
+    minSize: 1
+    maxSize: 2
+    volumeSize: 100
+    labels:
+      workload-type: channel
+      cgroupVersion: v2
+      priority: medium
+    tags:
+      k8s.io/cluster-autoscaler/enabled: "true"
+      k8s.io/cluster-autoscaler/prism-platform-mgmt: "owned"

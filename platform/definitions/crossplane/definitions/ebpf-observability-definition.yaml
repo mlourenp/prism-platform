@@ -1,0 +1,283 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xebpfobservabilitystacks.prism.io
+  labels:
+    prism.io/component: observability
+    prism.io/type: ebpf-stack
+spec:
+  group: prism.io
+  names:
+    kind: XeBPFObservabilityStack
+    plural: xebpfobservabilitystacks
+  claimNames:
+    kind: eBPFObservabilityStack
+    plural: ebpfobservabilitystacks
+  
+  versions:
+  - name: v1alpha1
+    served: true
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              # Cluster Configuration
+              clusterName:
+                type: string
+                description: "Name of the Kubernetes cluster"
+              clusterEndpoint:
+                type: string
+                description: "Kubernetes API server endpoint"
+              
+              # Provider Configuration
+              providerConfigRef:
+                type: object
+                properties:
+                  name:
+                    type: string
+                description: "Reference to provider configuration"
+              
+              # Cilium Configuration
+              cilium:
+                type: object
+                properties:
+                  version:
+                    type: string
+                    default: "1.15.3"
+                    description: "Cilium version to deploy"
+                  enableHubble:
+                    type: boolean
+                    default: true
+                    description: "Enable Hubble for network observability"
+                  enableUI:
+                    type: boolean
+                    default: true
+                    description: "Enable Hubble UI"
+                  enableClusterMesh:
+                    type: boolean
+                    default: false
+                    description: "Enable Cilium Cluster Mesh for multi-cluster"
+                  enableBandwidthManager:
+                    type: boolean
+                    default: true
+                    description: "Enable bandwidth management"
+              
+              # Tetragon Configuration
+              tetragon:
+                type: object
+                properties:
+                  version:
+                    type: string
+                    default: "0.10.0"
+                    description: "Tetragon version to deploy"
+                  enableProcessCredentials:
+                    type: boolean
+                    default: true
+                    description: "Enable process credentials monitoring"
+                  enableProcessNamespaces:
+                    type: boolean
+                    default: true
+                    description: "Enable process namespace monitoring"
+                  exportStdout:
+                    type: boolean
+                    default: true
+                    description: "Export events to stdout"
+              
+              # Pixie Configuration
+              pixie:
+                type: object
+                properties:
+                  version:
+                    type: string
+                    default: "0.12.0"
+                    description: "Pixie version to deploy"
+                  deployKey:
+                    type: string
+                    description: "Pixie deployment key"
+                  apiKey:
+                    type: string
+                    description: "Pixie API key"
+                  dataRetention:
+                    type: string
+                    default: "7d"
+                    description: "Data retention period"
+                  dataAccess:
+                    type: string
+                    default: "Full"
+                    enum: ["Full", "Restricted"]
+                    description: "Data access level"
+                  enableAutoInstrumentation:
+                    type: boolean
+                    default: true
+                    description: "Enable automatic application instrumentation"
+              
+              # Kepler Configuration
+              kepler:
+                type: object
+                properties:
+                  version:
+                    type: string
+                    default: "0.7.11"
+                    description: "Kepler version to deploy"
+                  enableGPUMonitoring:
+                    type: boolean
+                    default: true
+                    description: "Enable GPU power monitoring"
+                  enableBPFProfiling:
+                    type: boolean
+                    default: true
+                    description: "Enable eBPF-based profiling"
+                  metricsInterval:
+                    type: string
+                    default: "30s"
+                    description: "Metrics collection interval"
+                  enableCarbonFootprint:
+                    type: boolean
+                    default: true
+                    description: "Enable carbon footprint calculation"
+                  powerModel:
+                    type: string
+                    default: "rapl"
+                    enum: ["rapl", "acpi", "estimation"]
+                    description: "Power measurement model"
+              
+              # Falco Configuration
+              falco:
+                type: object
+                properties:
+                  version:
+                    type: string
+                    default: "4.2.4"
+                    description: "Falco version to deploy"
+                  enableWebUI:
+                    type: boolean
+                    default: true
+                    description: "Enable Falco Sidekick Web UI"
+                  enableGRPC:
+                    type: boolean
+                    default: true
+                    description: "Enable GRPC output"
+                  enableHTTP:
+                    type: boolean
+                    default: true
+                    description: "Enable HTTP output"
+                  ruleFiles:
+                    type: array
+                    items:
+                      type: string
+                    default: ["falco_rules.yaml", "k8s_audit_rules.yaml"]
+                    description: "Falco rule files to load"
+              
+              # Observability Integration
+              observability:
+                type: object
+                properties:
+                  enablePrometheusIntegration:
+                    type: boolean
+                    default: true
+                    description: "Enable Prometheus metrics collection"
+                  enableGrafanaDashboards:
+                    type: boolean
+                    default: true
+                    description: "Deploy Grafana dashboards"
+                  enableAlerting:
+                    type: boolean
+                    default: true
+                    description: "Enable alerting rules"
+                  
+              # Sustainability Features
+              sustainability:
+                type: object
+                properties:
+                  enableCarbonTracking:
+                    type: boolean
+                    default: true
+                    description: "Enable carbon emissions tracking"
+                  enableEnergyOptimization:
+                    type: boolean
+                    default: true
+                    description: "Enable energy optimization recommendations"
+                  carbonThresholdKgPerHour:
+                    type: number
+                    default: 0.5
+                    description: "Carbon emission threshold for alerts (kg CO2/hour)"
+                  targetPUE:
+                    type: number
+                    default: 1.3
+                    description: "Target Power Usage Effectiveness"
+            
+            required:
+            - clusterName
+            - clusterEndpoint
+            
+          status:
+            type: object
+            properties:
+              # Component Status
+              ciliumStatus:
+                type: string
+                enum: ["Installing", "Ready", "Failed"]
+              tetragonStatus:
+                type: string
+                enum: ["Installing", "Ready", "Failed"]
+              pixieStatus:
+                type: string
+                enum: ["Installing", "Ready", "Failed"]
+              keplerStatus:
+                type: string
+                enum: ["Installing", "Ready", "Failed"]
+              falcoStatus:
+                type: string
+                enum: ["Installing", "Ready", "Failed"]
+              
+              # Observability Endpoints
+              endpoints:
+                type: object
+                properties:
+                  hubbleUI:
+                    type: string
+                    description: "Hubble UI endpoint"
+                  tetragonUI:
+                    type: string
+                    description: "Tetragon UI endpoint"
+                  pixieUI:
+                    type: string
+                    description: "Pixie UI endpoint"
+                  keplerMetrics:
+                    type: string
+                    description: "Kepler metrics endpoint"
+                  falcoWebUI:
+                    type: string
+                    description: "Falco Sidekick Web UI endpoint"
+              
+              # Energy Metrics
+              energyMetrics:
+                type: object
+                properties:
+                  totalPowerConsumption:
+                    type: string
+                    description: "Current total power consumption"
+                  carbonFootprint:
+                    type: string
+                    description: "Current carbon footprint"
+                  powerEfficiency:
+                    type: string
+                    description: "Power efficiency score"
+              
+              # Security Status
+              securityStatus:
+                type: object
+                properties:
+                  networkPoliciesActive:
+                    type: integer
+                    description: "Number of active network policies"
+                  securityAlertsLast24h:
+                    type: integer
+                    description: "Security alerts in last 24 hours"
+                  complianceScore:
+                    type: string
+                    description: "Overall security compliance score" 

@@ -1,0 +1,14 @@
+affinity:
+  nodeAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+    - weight: 100
+      preference:
+        matchExpressions:
+        - key: cgroupVersion
+          operator: In
+          values:
+          - v2
+tolerations:
+- key: "workload-type"
+  operator: "Exists"
+  effect: "NoSchedule"

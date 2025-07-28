@@ -1,0 +1,24 @@
+apiVersion: prism-platform.example.com/v1alpha1
+kind: GlobalInfrastructure
+metadata:
+  name: global-infra
+  namespace: crossplane-system
+spec:
+  dns:
+    hostedZoneName: prism-platform.example.com
+    enablePrivateZone: true
+  security:
+    enableWAF: true
+    enableShield: false
+    enableGuardDuty: true
+  monitoring:
+    enableCloudWatch: true
+    enableCloudTrail: true
+  networking:
+    enableTransitGateway: false
+    enableDirectConnect: false
+  deploymentPhase: PHASE_1_0_PERCENT
+  provider: AWS
+  writeConnectionSecretToRef:
+    namespace: crossplane-system
+    name: global-infrastructure-connection

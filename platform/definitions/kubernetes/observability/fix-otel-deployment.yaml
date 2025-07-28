@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+  namespace: monitoring
+  labels:
+    app: opentelemetry
+spec:
+  selector:
+    matchLabels:
+      app: opentelemetry
+  template:
+    metadata:
+      labels:
+        app: opentelemetry
+    spec:
+      containers:
+      - name: otel-collector
+        image: otel/opentelemetry-collector-contrib:0.91.0
+        args:
+        - "--config=/conf/otel-collector-config"
+        ports:
+        - containerPort: 4317 # OTLP gRPC
+        - containerPort: 4318 # OTLP HTTP
+        - containerPort: 8889 # Prometheus exporter
+        volumeMounts:
+        - name: otel-collector-config-volume
+          mountPath: /conf
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 13133
+          initialDelaySeconds: 10
+          periodSeconds: 20
+      volumes:
+      - name: otel-collector-config-volume
+        configMap:
+          name: otel-collector-conf
+          items:
+          - key: otel-collector-config
+            path: otel-collector-config

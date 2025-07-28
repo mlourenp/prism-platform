@@ -1,0 +1,163 @@
+# Tetragon configuration for Prism Platform
+# Runtime security and process monitoring via eBPF
+
+# Tetragon agent configuration
+tetragon:
+  enabled: true
+  
+  image:
+    repository: quay.io/cilium/tetragon
+    tag: v0.10.0
+    
+  # gRPC configuration
+  grpc:
+    enabled: true
+    address: "localhost:54321"
+    
+  # Export configuration
+  export:
+    allowlist: []
+    denylist: []
+    stdout:
+      enabled: true
+    filename: "/var/log/tetragon/tetragon.log"
+    
+  # Process filtering
+  processFilter:
+    enable: true
+    
+  # Resource configuration
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+      
+  # Security context
+  securityContext:
+    privileged: true
+    
+  # Host networking
+  hostNetwork: true
+  
+  # Service account
+  serviceAccount:
+    create: true
+    name: "tetragon"
+
+# Tetragon operator
+tetragonOperator:
+  enabled: true
+  
+  image:
+    repository: quay.io/cilium/tetragon-operator
+    tag: v0.10.0
+    
+  # Resource configuration
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+      
+  # Service account
+  serviceAccount:
+    create: true
+    name: "tetragon-operator"
+
+# Monitoring and observability
+prometheus:
+  enabled: true
+  port: 2112
+  serviceMonitor:
+    enabled: true
+    
+# Export to external systems
+export:
+  # File export
+  filenames:
+  - "/var/log/tetragon/events.json"
+  
+  # Rate limiting
+  rateLimit: 1000
+  
+  # Compression
+  compression: "gzip"
+
+# Policy enforcement
+policies:
+  # Network policies for cells
+  enforce: true
+  
+  # Audit mode
+  audit: false
+  
+  # Default deny policy
+  defaultDeny: false
+
+# Tracing policies for Prism cells
+tracingPolicies:
+  # System calls monitoring
+  syscalls:
+    enabled: true
+    events:
+    - "execve"
+    - "openat"
+    - "connect"
+    - "accept"
+    
+  # File access monitoring
+  files:
+    enabled: true
+    paths:
+    - "/etc/passwd"
+    - "/etc/shadow"
+    - "/var/log"
+    
+  # Network monitoring
+  network:
+    enabled: true
+    protocols:
+    - "tcp"
+    - "udp"
+
+# Node selector
+nodeSelector:
+  kubernetes.io/os: linux
+
+# Tolerations for security monitoring on all nodes
+tolerations:
+- operator: Exists
+  effect: NoSchedule
+- operator: Exists
+  effect: NoExecute
+
+# Priority class for security workloads
+priorityClassName: "system-node-critical"
+
+# Pod security standards
+podSecurityContext:
+  runAsNonRoot: false  # Needs root for eBPF
+  runAsUser: 0
+  fsGroup: 0
+
+# Container security context
+securityContext:
+  allowPrivilegeEscalation: true
+  capabilities:
+    add:
+    - SYS_ADMIN
+    - SYS_RESOURCE
+    - SYS_PTRACE
+    - NET_ADMIN
+    - NET_RAW
+    - IPC_LOCK
+    - BPF
+  privileged: true
+  readOnlyRootFilesystem: false
+  runAsNonRoot: false
+  runAsUser: 0 

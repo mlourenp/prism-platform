@@ -1,0 +1,20 @@
+{
+  "title": "eBPF Network Monitoring",
+  "description": "eBPF-based network monitoring for Prism platform",
+  "widgets": [
+    {
+      "id": 1,
+      "definition": {
+        "type": "timeseries",
+        "title": "eBPF Network Policies",
+        "requests": [
+          {
+            "q": "avg:cilium.network.policy.drops{*}"
+          }
+        ]
+      }
+    }
+  ],
+  "layout_type": "ordered",
+  "tags": ["platform:prism", "component:ebpf"]
+} 

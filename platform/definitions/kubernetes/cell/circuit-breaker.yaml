@@ -1,0 +1,55 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: prism-platform-circuit-breaker
+  namespace: prism-platform
+spec:
+  host: "*.prism-platform.svc.cluster.local"
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: 100
+        connectTimeout: 30ms
+      http:
+        http2MaxRequests: 1000
+        maxRequestsPerConnection: 10
+        maxRetries: 3
+    outlierDetection:
+      consecutive5xxErrors: 5
+      interval: 30s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 10
+    loadBalancer:
+      simple: ROUND_ROBIN
+    retries:
+      attempts: 3
+      perTryTimeout: 2s
+      retryOn: connect-failure,refused-stream,unavailable,cancelled,retriable-status-codes
+    timeout: 10s
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: prism-platform-circuit-breaker
+  namespace: prism-platform
+spec:
+  hosts:
+  - "*.prism-platform.svc.cluster.local"
+  http:
+  - route:
+    - destination:
+        host: "*.prism-platform.svc.cluster.local"
+      retries:
+        attempts: 3
+        perTryTimeout: 2s
+        retryOn: connect-failure,refused-stream,unavailable,cancelled,retriable-status-codes
+    timeout: 10s
+    fault:
+      delay:
+        percentage:
+          value: 5
+        fixedDelay: 5s
+      abort:
+        percentage:
+          value: 5
+        httpStatus: 500

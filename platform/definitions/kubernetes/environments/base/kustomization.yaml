@@ -1,0 +1,26 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+- ../../cell/namespace.yaml
+- ../../cell/api-service.yaml
+- ../../cell/database.yaml
+- ../../cell/rabbitmq.yaml
+- ../../cell/drift-detector.yaml
+- ../../feedback-loop-deployment.yaml
+- ../../operators/ml-operator/crds/mlmodels.yaml
+- ../../operators/ml-operator/crds/feedbackloops.yaml
+- ../../operators/ml-operator/deploy/rbac.yaml
+- ../../operators/ml-operator/deploy/deployment.yaml
+- ../../cronjobs/model-retraining-job.yaml
+- ../../cronjobs/experiment-evaluation-job.yaml
+
+commonLabels:
+  app.kubernetes.io/managed-by: kustomize
+  app.kubernetes.io/part-of: prism-platform
+
+configMapGenerator:
+- name: ml-services-config
+  literals:
+  - model_registry_url=http://model-registry:8080
+  - feature_store_url=http://feature-store:8080

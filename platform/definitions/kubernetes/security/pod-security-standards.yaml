@@ -1,0 +1,179 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sPSPPrivilegedContainer
+metadata:
+  name: prevent-privileged-containers
+spec:
+  match:
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Pod"]
+    excludedNamespaces:
+      - kube-system
+      - istio-system
+      - crossplane-system
+
+---
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sPSPHostNamespace
+metadata:
+  name: prevent-host-namespace
+spec:
+  match:
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Pod"]
+    excludedNamespaces:
+      - kube-system
+      - observability-cell-namespace
+
+---
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sPSPHostNetworkingPorts
+metadata:
+  name: prevent-host-network-ports
+spec:
+  match:
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Pod"]
+    excludedNamespaces:
+      - kube-system
+      - istio-system
+
+---
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sPSPVolumeTypes
+metadata:
+  name: restrict-volume-types
+spec:
+  parameters:
+    volumes:
+      # Allowed volume types
+      - configMap
+      - emptyDir
+      - projected
+      - secret
+      - downwardAPI
+      - persistentVolumeClaim
+      - csi
+  match:
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Pod"]
+    excludedNamespaces:
+      - kube-system
+
+---
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sPSPCapabilities
+metadata:
+  name: restrict-capabilities
+spec:
+  parameters:
+    requiredDropCapabilities:
+      - ALL
+    allowedCapabilities:
+      - NET_BIND_SERVICE  # Allow binding to privileged ports
+  match:
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Pod"]
+    excludedNamespaces:
+      - kube-system
+
+---
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sPSPAllowedUsers
+metadata:
+  name: restrict-root-users
+spec:
+  parameters:
+    runAsUser:
+      rule: MustRunAsNonRoot
+    runAsGroup:
+      rule: MustRunAs
+      ranges:
+        - min: 1000
+          max: 65535
+    supplementalGroups:
+      rule: MustRunAs
+      ranges:
+        - min: 1000
+          max: 65535
+    fsGroup:
+      rule: MustRunAs
+      ranges:
+        - min: 1000
+          max: 65535
+  match:
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Pod"]
+    excludedNamespaces:
+      - kube-system
+
+---
+# Example for a security compliant pod
+apiVersion: v1
+kind: Pod
+metadata:
+  name: security-compliant-example
+  namespace: prism-platform
+  annotations:
+    description: "Example of a security compliant pod - for documentation only"
+spec:
+  serviceAccountName: prism-platform-app-sa
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+  - name: app
+    image: ${ECR_REGISTRY}/prism-platform/service:latest
+    securityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop:
+        - ALL
+      privileged: false
+    resources:
+      limits:
+        cpu: "1"
+        memory: "512Mi"
+      requests:
+        cpu: "200m"
+        memory: "256Mi"
+    volumeMounts:
+    - name: tmp-volume
+      mountPath: /tmp
+    - name: app-config
+      mountPath: /app/config
+      readOnly: true
+  volumes:
+  - name: tmp-volume
+    emptyDir: {}
+  - name: app-config
+    configMap:
+      name: app-config
+
+---
+# Installation instructions for OPA Gatekeeper (in comments)
+# To install the Open Policy Agent Gatekeeper:
+#
+# 1. Install OPA Gatekeeper
+# kubectl apply -f https://raw.githubusercontent.com/open-policy-agent/gatekeeper/release-3.11/deploy/gatekeeper.yaml
+#
+# 2. Apply the policies
+# kubectl apply -f kubernetes/security/pod-security-standards.yaml
+#
+# 3. Verify installation
+# kubectl get pods -n gatekeeper-system
+# kubectl get constraints
+#
+# 4. Test a policy
+# kubectl run nginx --image=nginx --privileged
+# This should be denied by the prevent-privileged-containers constraint

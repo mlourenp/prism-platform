@@ -1,0 +1,119 @@
+groups:
+  - name: prism_platform_alerts
+    rules:
+      # System health alerts
+      - alert: HighCPUUsage
+        expr: avg by(pod) (rate(container_cpu_usage_seconds_total{namespace=~".*prism-platform.*"}[5m])) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage on {{ $labels.pod }}"
+          description: "Pod {{ $labels.pod }} has high CPU usage (> 80%) for more than 5 minutes."
+
+      - alert: HighMemoryUsage
+        expr: container_memory_usage_bytes{namespace=~".*prism-platform.*"} / container_spec_memory_limit_bytes{namespace=~".*prism-platform.*"} * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage on {{ $labels.pod }}"
+          description: "Pod {{ $labels.pod }} has high memory usage (> 80%) for more than 5 minutes."
+
+      - alert: PodCrashLooping
+        expr: increase(kube_pod_container_status_restarts_total{namespace=~".*prism-platform.*"}[15m]) > 3
+        labels:
+          severity: critical
+        annotations:
+          summary: "Pod {{ $labels.pod }} is crash looping"
+          description: "Pod {{ $labels.pod }} has restarted more than 3 times in the last 15 minutes."
+
+      # Application metrics
+      - alert: HighDriftRate
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High drift rate detected"
+          description: "Drift rate has been above 0.7 for more than 10 minutes."
+
+      - alert: DriftDetectionLatencyHigh
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Drift detection latency is high"
+          description: "Drift detection latency is above 5 seconds for more than 5 minutes."
+
+      - alert: FeedbackLoopDelay
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Feedback loop response time is high"
+          description: "Feedback loop is taking more than 10 seconds to respond for more than 5 minutes."
+
+      - alert: ModelExecutionFailure
+        expr: increase(model_execution_failures_total[15m]) > 5
+        labels:
+          severity: critical
+        annotations:
+          summary: "Multiple model execution failures"
+          description: "There have been more than 5 model execution failures in the last 15 minutes."
+
+      # Service availability
+      - alert: APIEndpointDown
+        expr: up{job="drift-detector"} == 0 or up{job="feedback-loop"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API endpoint is down"
+          description: "The {{ $labels.job }} endpoint has been down for more than 1 minute."
+
+      - alert: HighErrorRate
+        expr: sum(rate(http_requests_total{status=~"5.."}[5m])) / sum(rate(http_requests_total[5m])) * 100 > 5
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High HTTP error rate"
+          description: "Error rate is above 5% for more than 2 minutes."
+
+      # Data processing alerts
+      - alert: DataProcessingBacklog
+        expr: processing_queue_size > 1000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Large data processing backlog"
+          description: "The processing queue has more than 1000 items for over 5 minutes."
+
+      - alert: SlowDataProcessing
+        expr: avg_rate(data_points_processed_total[5m]) < 100
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow data processing rate"
+          description: "Processing fewer than 100 data points per second for more than 10 minutes."
+
+      # Resource saturation
+      - alert: RedisHighMemory
+        expr: redis_memory_used_bytes / redis_memory_max_bytes * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis high memory usage"
+          description: "Redis memory usage is above 80% for more than 5 minutes."
+
+      - alert: DiskSpaceLow
+        expr: node_filesystem_avail_bytes{mountpoint="/data"} / node_filesystem_size_bytes{mountpoint="/data"} * 100 < 15
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low disk space"
+          description: "Less than 15% disk space available for more than 5 minutes."

@@ -1,0 +1,52 @@
+driver:
+  kind: ebpf
+ebpf:
+  enabled: true
+falco:
+  ebpf:
+    enabled: true
+  programOutput:
+    enabled: true
+    program: "curl -d @- -X POST http://fluentd:9880/falco"
+  jsonOutput: true
+  jsonIncludeOutputProperty: true
+  httpOutput:
+    enabled: true
+    url: "http://falco-webhook:8080/falco"
+  syslog:
+    enabled: true
+  fileOutput:
+    enabled: true
+    keepAlive: false
+    filename: /var/log/falco/falco.log
+  timeFormatISO8601: true
+  rules:
+    default:
+      enabled: true
+    custom:
+      enabled: true
+      rules:
+        - rule: Detect Kubernetes Secrets Access
+          desc: Detect access to Kubernetes secrets
+          condition: evt.type=open and fd.name contains "/var/run/secrets/kubernetes.io/serviceaccount/token"
+          output: "Kubernetes secrets access detected (user=%user.name file=%fd.name)"
+          priority: WARNING
+        - rule: Detect Container Escape
+          desc: Detect container escape attempts
+          condition: evt.type=execve and evt.arg.path contains "/bin/sh" and container.id != host
+          output: "Container escape attempt detected (user=%user.name container=%container.name)"
+          priority: CRITICAL
+serviceAccount:
+  create: true
+aws:
+  enabled: true
+  # Add AWS-specific configurations for monitoring
+  cloudwatch:
+    enabled: true
+    logGroup: "falco-logs"
+    region: ""
+falcosidekick:
+  enabled: true
+  config:
+    prometheus:
+      enabled: true

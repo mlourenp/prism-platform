@@ -1,0 +1,164 @@
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default-peer-policy
+  namespace: prism-platform
+spec:
+  mtls:
+    mode: STRICT  # Require mutual TLS for all service-to-service communication
+
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: default-destination-rule
+  namespace: prism-platform
+spec:
+  host: "*.prism-platform.svc.cluster.local"
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL  # Use Istio's built-in mTLS
+
+---
+# TLS Policy for all ingress traffic
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: prism-platform-gateway
+  namespace: prism-platform
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+  - port:
+      number: 443
+      name: https
+      protocol: HTTPS
+    hosts:
+    - "api.prism.io"
+    - "*.prism.io"
+    tls:
+      mode: SIMPLE
+      credentialName: corrospondent-tls-cert  # Reference to TLS certificate secret
+
+---
+# TLS certificate for the gateway
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: corrospondent-tls-cert
+  namespace: prism-platform
+spec:
+  secretName: corrospondent-tls-cert
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+  - "api.prism.io"
+  - "*.prism.io"
+
+---
+# Configure Let's Encrypt as certificate issuer
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: security@prism.io
+    privateKeySecretRef:
+      name: letsencrypt-prod-key
+    solvers:
+    - http01:
+        ingress:
+          class: istio
+
+---
+# TLS enforcement policy using OPA Gatekeeper
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: TLSEnforcement
+metadata:
+  name: require-tls
+spec:
+  match:
+    kinds:
+      - apiGroups: ["networking.k8s.io"]
+        kinds: ["Ingress"]
+      - apiGroups: ["networking.istio.io"]
+        kinds: ["VirtualService", "Gateway"]
+  parameters:
+    minimumTLSVersion: "TLS1_2"  # Minimum TLS version requirement
+    allowedCiphers:              # Only secure cipher suites allowed
+      - "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+      - "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+      - "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"
+      - "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"
+      - "TLS_RSA_WITH_AES_256_GCM_SHA384"
+
+---
+# Policy to enforce HTTP -> HTTPS redirection
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: https-redirect
+  namespace: prism-platform
+spec:
+  hosts:
+  - "api.prism.io"
+  - "*.prism.io"
+  gateways:
+  - prism-platform-gateway
+  http:
+  - match:
+    - port: 80
+    redirect:
+      port: 443
+      scheme: HTTPS
+  - route:
+    - destination:
+        host: prism-platform-api-service
+        port:
+          number: 8080
+
+---
+# Certificate rotation policy
+apiVersion: cert-manager.io/v1
+kind: CertificateRequest
+metadata:
+  name: certificate-rotation-policy
+  namespace: prism-platform
+  annotations:
+    cert-manager.io/certificate-name: corrospondent-tls-cert
+    cert-manager.io/duration: 2160h  # 90 days
+    cert-manager.io/renew-before: 720h  # 30 days before expiry
+spec:
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  request: ""  # This will be filled by cert-manager
+  duration: 2160h  # 90 days
+  usages:
+    - server auth
+    - client auth
+
+---
+# Setup instructions:
+# 1. Install Istio:
+#    curl -L https://istio.io/downloadIstio | sh -
+#    cd istio-*
+#    ./bin/istioctl install --set profile=demo -y
+#
+# 2. Install cert-manager:
+#    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.11.0/cert-manager.yaml
+#
+# 3. Install OPA Gatekeeper:
+#    kubectl apply -f https://raw.githubusercontent.com/open-policy-agent/gatekeeper/release-3.7/deploy/gatekeeper.yaml
+#
+# 4. Apply this TLS policy:
+#    kubectl apply -f kubernetes/security/cluster-tls-policy.yaml
+#
+# 5. Verify TLS enforcement:
+#    kubectl get peerauthentication -n prism-platform
+#    kubectl get destinationrule -n prism-platform
+#    kubectl get certificate -n prism-platform

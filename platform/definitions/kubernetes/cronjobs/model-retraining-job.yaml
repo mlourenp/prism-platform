@@ -1,0 +1,194 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: model-retraining-job
+  namespace: ml-system
+  labels:
+    app: model-retraining
+    component: ml-pipeline
+spec:
+  # Schedule to run daily at 2 AM UTC
+  schedule: "0 2 * * *"
+  # Prevent concurrent job executions
+  concurrencyPolicy: Forbid
+  # Keep 3 successful and 1 failed job for history
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      # Set timeout to 4 hours for the entire job
+      activeDeadlineSeconds: 14400
+      template:
+        metadata:
+          labels:
+            app: model-retraining
+            component: ml-pipeline
+        spec:
+          # Use service account with necessary permissions
+          serviceAccountName: ml-pipeline-sa
+          restartPolicy: OnFailure
+          containers:
+          - name: retraining-container
+            image: ${REGISTRY}/${PROJECT}/ml-system:${TAG}
+            imagePullPolicy: Always
+            command:
+            - python
+            - /app/scripts/retrain_models.py
+            - --drifting-models
+            env:
+            - name: MLFLOW_TRACKING_URI
+              valueFrom:
+                configMapKeyRef:
+                  name: ml-system-config
+                  key: mlflow_tracking_uri
+            - name: MODEL_REGISTRY_URI
+              valueFrom:
+                configMapKeyRef:
+                  name: ml-system-config
+                  key: model_registry_uri
+            - name: MODEL_STORAGE_PATH
+              value: "/models"
+            - name: RETRAINING_DRIFT_THRESHOLD
+              valueFrom:
+                configMapKeyRef:
+                  name: ml-system-config
+                  key: retraining_drift_threshold
+                  optional: true
+            - name: RETRAINING_SCHEDULE_DAYS
+              valueFrom:
+                configMapKeyRef:
+                  name: ml-system-config
+                  key: retraining_schedule_days
+                  optional: true
+            - name: IMPROVEMENT_THRESHOLD
+              valueFrom:
+                configMapKeyRef:
+                  name: ml-system-config
+                  key: improvement_threshold
+                  optional: true
+            - name: AUTO_DEPLOY
+              valueFrom:
+                configMapKeyRef:
+                  name: ml-system-config
+                  key: auto_deploy_models
+                  optional: true
+            - name: DB_CONNECTION_STRING
+              valueFrom:
+                secretKeyRef:
+                  name: ml-system-secrets
+                  key: db_connection_string
+            # Add additional environment variables here
+            resources:
+              requests:
+                memory: "4Gi"
+                cpu: "1"
+              limits:
+                memory: "8Gi"
+                cpu: "2"
+            volumeMounts:
+            - name: models-volume
+              mountPath: /models
+            - name: logs-volume
+              mountPath: /app/logs
+          volumes:
+          - name: models-volume
+            persistentVolumeClaim:
+              claimName: models-pvc
+          - name: logs-volume
+            persistentVolumeClaim:
+              claimName: logs-pvc
+---
+# Create a second CronJob for full retraining - weekly on Sunday at 1 AM UTC
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: model-full-retraining-job
+  namespace: ml-system
+  labels:
+    app: model-retraining
+    component: ml-pipeline
+spec:
+  schedule: "0 1 * * 0"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 28800  # 8 hours timeout for full retraining
+      template:
+        metadata:
+          labels:
+            app: model-retraining
+            component: ml-pipeline
+        spec:
+          serviceAccountName: ml-pipeline-sa
+          restartPolicy: OnFailure
+          containers:
+          - name: full-retraining-container
+            image: ${REGISTRY}/${PROJECT}/ml-system:${TAG}
+            imagePullPolicy: Always
+            command:
+            - python
+            - /app/scripts/retrain_models.py
+            - --all-models
+            env:
+            - name: MLFLOW_TRACKING_URI
+              valueFrom:
+                configMapKeyRef:
+                  name: ml-system-config
+                  key: mlflow_tracking_uri
+            - name: MODEL_REGISTRY_URI
+              valueFrom:
+                configMapKeyRef:
+                  name: ml-system-config
+                  key: model_registry_uri
+            - name: MODEL_STORAGE_PATH
+              value: "/models"
+            - name: RETRAINING_DRIFT_THRESHOLD
+              valueFrom:
+                configMapKeyRef:
+                  name: ml-system-config
+                  key: retraining_drift_threshold
+                  optional: true
+            - name: RETRAINING_SCHEDULE_DAYS
+              valueFrom:
+                configMapKeyRef:
+                  name: ml-system-config
+                  key: retraining_schedule_days
+                  optional: true
+            - name: IMPROVEMENT_THRESHOLD
+              valueFrom:
+                configMapKeyRef:
+                  name: ml-system-config
+                  key: improvement_threshold
+                  optional: true
+            - name: AUTO_DEPLOY
+              valueFrom:
+                configMapKeyRef:
+                  name: ml-system-config
+                  key: auto_deploy_models
+                  optional: true
+            - name: DB_CONNECTION_STRING
+              valueFrom:
+                secretKeyRef:
+                  name: ml-system-secrets
+                  key: db_connection_string
+            resources:
+              requests:
+                memory: "8Gi"
+                cpu: "2"
+              limits:
+                memory: "16Gi"
+                cpu: "4"
+            volumeMounts:
+            - name: models-volume
+              mountPath: /models
+            - name: logs-volume
+              mountPath: /app/logs
+          volumes:
+          - name: models-volume
+            persistentVolumeClaim:
+              claimName: models-pvc
+          - name: logs-volume
+            persistentVolumeClaim:
+              claimName: logs-pvc

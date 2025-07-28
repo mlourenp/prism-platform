@@ -1,0 +1,257 @@
+---
+# Cell Subnet Network Policies using Cilium
+# These policies enforce the network architecture where External and Channel cells
+# are on public subnets, and all other cells are on private subnets
+
+apiVersion: "cilium.io/v2"
+kind: CiliumNetworkPolicy
+metadata:
+  name: public-subnet-cell-policy
+  namespace: prism-platform
+spec:
+  description: "Policy for cells on public subnets (External, Channel)"
+  endpointSelector:
+    matchExpressions:
+      - key: cell.prism-platform.io/type
+        operator: In
+        values:
+          - external
+          - channel
+  ingress:
+    # Allow all ingress to public subnet cells (External, Channel)
+    - {}
+  egress:
+    # Allow public cells to communicate with all other cells
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/part-of: prism-platform
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+            - port: "443"
+              protocol: TCP
+    # Allow outbound internet access
+    - toEntities:
+        - "world"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+            - port: "80"
+              protocol: TCP
+---
+apiVersion: "cilium.io/v2"
+kind: CiliumNetworkPolicy
+metadata:
+  name: private-subnet-cell-policy
+  namespace: prism-platform
+spec:
+  description: "Policy for cells on private subnets (Data, Logic, Security, Observability, Integration)"
+  endpointSelector:
+    matchExpressions:
+      - key: cell.prism-platform.io/type
+        operator: In
+        values:
+          - data
+          - logic
+          - security
+          - observability
+          - integration
+  ingress:
+    # Allow ingress only from other prism-platform cells
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/part-of: prism-platform
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+            - port: "443"
+              protocol: TCP
+  egress:
+    # Allow private cells to communicate only with other prism-platform cells
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/part-of: prism-platform
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+            - port: "443"
+              protocol: TCP
+    # Restrict internet access - only allow specific services if needed
+    - toFQDNs:
+        - matchName: "registry.k8s.io"
+        - matchName: "k8s.gcr.io"
+        - matchName: "auth.docker.io"
+        - matchName: "registry-1.docker.io"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+---
+apiVersion: "cilium.io/v2"
+kind: CiliumNetworkPolicy
+metadata:
+  name: integration-cell-special-policy
+  namespace: prism-platform
+spec:
+  description: "Special policy for Integration cell routing through Channel cell"
+  endpointSelector:
+    matchLabels:
+      cell.prism-platform.io/type: integration
+  ingress:
+    # Allow ingress only from channel cell and other internal cells
+    - fromEndpoints:
+        - matchLabels:
+            cell.prism-platform.io/type: channel
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+            - port: "443"
+              protocol: TCP
+    - fromEndpoints:
+        - matchExpressions:
+            - key: cell.prism-platform.io/type
+              operator: In
+              values:
+                - data
+                - logic
+                - security
+                - observability
+                - simulation
+                - recommendation
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+            - port: "443"
+              protocol: TCP
+  egress:
+    # Integration cell can only send traffic to channel cell for external routing
+    - toEndpoints:
+        - matchLabels:
+            cell.prism-platform.io/type: channel
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+            - port: "443"
+              protocol: TCP
+    # Allow communication with internal cells
+    - toEndpoints:
+        - matchExpressions:
+            - key: cell.prism-platform.io/type
+              operator: In
+              values:
+                - data
+                - logic
+                - security
+                - observability
+                - simulation
+                - recommendation
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+            - port: "443"
+              protocol: TCP
+---
+apiVersion: "cilium.io/v2"
+kind: CiliumNetworkPolicy
+metadata:
+  name: simulation-cell-benchmarking-policy
+  namespace: prism-platform
+spec:
+  description: "Policy for simulation cell to perform benchmarking across all cells"
+  endpointSelector:
+    matchLabels:
+      cell.prism-platform.io/type: simulation
+  ingress:
+    # Allow ingress only from internal cells
+    - fromEndpoints:
+        - matchExpressions:
+            - key: cell.prism-platform.io/type
+              operator: In
+              values:
+                - data
+                - logic
+                - security
+                - observability
+                - channel
+                - integration
+                - recommendation
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+            - port: "9090"
+              protocol: TCP
+  egress:
+    # Allow simulation to benchmark all cells
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/part-of: prism-platform
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+            - port: "443"
+              protocol: TCP
+            - port: "9090"
+              protocol: TCP
+---
+apiVersion: "cilium.io/v2"
+kind: CiliumNetworkPolicy
+metadata:
+  name: recommendation-cell-data-access-policy
+  namespace: prism-platform
+spec:
+  description: "Policy for recommendation cell to access data for optimization"
+  endpointSelector:
+    matchLabels:
+      cell.prism-platform.io/type: recommendation
+  ingress:
+    # Allow ingress only from observability and other internal cells
+    - fromEndpoints:
+        - matchExpressions:
+            - key: cell.prism-platform.io/type
+              operator: In
+              values:
+                - observability
+                - channel
+                - external
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+            - port: "443"
+              protocol: TCP
+  egress:
+    # Allow recommendation cell to access metrics and data sources
+    - toEndpoints:
+        - matchExpressions:
+            - key: cell.prism-platform.io/type
+              operator: In
+              values:
+                - data
+                - observability
+                - simulation
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+            - port: "9090"
+              protocol: TCP
+    # Allow recommendation to notify channel cell about optimization opportunities
+    - toEndpoints:
+        - matchLabels:
+            cell.prism-platform.io/type: channel
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+            - port: "443"
+              protocol: TCP

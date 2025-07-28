@@ -1,0 +1,296 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: ebpf-observability-stack
+  labels:
+    prism.io/provider: kubernetes
+    prism.io/component: observability
+    prism.io/type: ebpf-stack
+spec:
+  writeConnectionSecretsToNamespace: crossplane-system
+  
+  compositeTypeRef:
+    apiVersion: prism.io/v1alpha1
+    kind: XeBPFObservabilityStack
+  
+  resources:
+  # Cilium - eBPF Networking and Security
+  - name: cilium-namespace
+    base:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: cilium-system
+        labels:
+          prism.io/component: cilium
+    patches:
+    - type: PatchSet
+      patchSetName: common-fields
+  
+  - name: cilium-helm-release
+    base:
+      apiVersion: helm.crossplane.io/v1beta1
+      kind: Release
+      metadata:
+        name: cilium
+      spec:
+        forProvider:
+          chart:
+            name: cilium
+            repository: https://helm.cilium.io/
+            version: "1.15.3"
+          namespace: cilium-system
+          values:
+            hubble:
+              enabled: true
+              ui:
+                enabled: true
+              relay:
+                enabled: true
+            operator:
+              replicas: 2
+            ipam:
+              mode: kubernetes
+            kubeProxyReplacement: true
+            k8sServiceHost: cluster-endpoint
+            k8sServicePort: 443
+            bandwidthManager:
+              enabled: true
+            nodePort:
+              enabled: true
+            externalIPs:
+              enabled: true
+            hostPort:
+              enabled: true
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cilium.version
+      toFieldPath: spec.forProvider.chart.version
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.clusterEndpoint
+      toFieldPath: spec.forProvider.values.k8sServiceHost
+
+  # Tetragon - eBPF Runtime Security
+  - name: tetragon-namespace
+    base:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: tetragon-system
+        labels:
+          prism.io/component: tetragon
+    patches:
+    - type: PatchSet
+      patchSetName: common-fields
+  
+  - name: tetragon-helm-release
+    base:
+      apiVersion: helm.crossplane.io/v1beta1
+      kind: Release
+      metadata:
+        name: tetragon
+      spec:
+        forProvider:
+          chart:
+            name: tetragon
+            repository: https://helm.cilium.io/
+            version: "0.10.0"
+          namespace: tetragon-system
+          values:
+            tetragon:
+              enabled: true
+              image:
+                override: quay.io/cilium/tetragon:v0.10.0
+            tetragonOperator:
+              enabled: true
+            export:
+              stdout:
+                enabled: true
+              mode: stdout
+            processcreds:
+              enabled: true
+            processns:
+              enabled: true
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tetragon.version
+      toFieldPath: spec.forProvider.chart.version
+
+  # Pixie - Deep Application Observability
+  - name: pixie-namespace
+    base:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: pl-system
+        labels:
+          prism.io/component: pixie
+    patches:
+    - type: PatchSet
+      patchSetName: common-fields
+  
+  - name: pixie-helm-release
+    base:
+      apiVersion: helm.crossplane.io/v1beta1
+      kind: Release
+      metadata:
+        name: pixie
+      spec:
+        forProvider:
+          chart:
+            name: pixie-operator-chart
+            repository: https://pixie-operator-charts.storage.googleapis.com
+            version: "0.12.0"
+          namespace: pl-system
+          values:
+            deployKey: "" # Set via patch
+            clusterName: ""
+            pixieAPIKey: ""
+            dataAccess: "Full"
+            dataRetention: "7d"
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.pixie.deployKey
+      toFieldPath: spec.forProvider.values.deployKey
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.clusterName
+      toFieldPath: spec.forProvider.values.clusterName
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.pixie.apiKey
+      toFieldPath: spec.forProvider.values.pixieAPIKey
+
+  # Kepler - Energy Consumption Monitoring
+  - name: kepler-namespace
+    base:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: kepler-system
+        labels:
+          prism.io/component: kepler
+          prism.io/sustainability: "true"
+    patches:
+    - type: PatchSet
+      patchSetName: common-fields
+  
+  - name: kepler-helm-release
+    base:
+      apiVersion: helm.crossplane.io/v1beta1
+      kind: Release
+      metadata:
+        name: kepler
+      spec:
+        forProvider:
+          chart:
+            name: kepler
+            repository: https://sustainable-computing-io.github.io/kepler-helm-chart
+            version: "0.7.11"
+          namespace: kepler-system
+          values:
+            serviceMonitor:
+              enabled: true
+              namespace: kepler-system
+            extraEnvVars:
+              KEPLER_LOG_LEVEL: "1"
+              METRICS_PATH: "/metrics"
+              BIND_ADDRESS: "0.0.0.0:8888"
+            nodeSelector:
+              kubernetes.io/os: linux
+            tolerations:
+            - key: node-role.kubernetes.io/control-plane
+              operator: Exists
+              effect: NoSchedule
+            - key: node-role.kubernetes.io/master
+              operator: Exists
+              effect: NoSchedule
+            securityContext:
+              privileged: true
+            resources:
+              requests:
+                cpu: 100m
+                memory: 400Mi
+              limits:
+                cpu: 1000m
+                memory: 1Gi
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.kepler.version
+      toFieldPath: spec.forProvider.chart.version
+
+  # Falco - eBPF Security Event Detection
+  - name: falco-namespace
+    base:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: falco-system
+        labels:
+          prism.io/component: falco
+    patches:
+    - type: PatchSet
+      patchSetName: common-fields
+  
+  - name: falco-helm-release
+    base:
+      apiVersion: helm.crossplane.io/v1beta1
+      kind: Release
+      metadata:
+        name: falco
+      spec:
+        forProvider:
+          chart:
+            name: falco
+            repository: https://falcosecurity.github.io/charts
+            version: "4.2.4"
+          namespace: falco-system
+          values:
+            driver:
+              kind: ebpf
+            ebpf:
+              enabled: true
+            falco:
+              grpc:
+                enabled: true
+              grpcOutput:
+                enabled: true
+              httpOutput:
+                enabled: true
+                url: "http://falcosidekick:2801"
+            falcosidekick:
+              enabled: true
+              webui:
+                enabled: true
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.falco.version
+      toFieldPath: spec.forProvider.chart.version
+
+  # Service Monitor for Prometheus Integration
+  - name: ebpf-service-monitor
+    base:
+      apiVersion: monitoring.coreos.com/v1
+      kind: ServiceMonitor
+      metadata:
+        name: ebpf-observability-stack
+        namespace: prism-system
+      spec:
+        selector:
+          matchLabels:
+            prism.io/ebpf-monitoring: "true"
+        endpoints:
+        - port: metrics
+          interval: 30s
+          path: /metrics
+    patches:
+    - type: PatchSet
+      patchSetName: common-fields
+
+  patchSets:
+  - name: common-fields
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: metadata.labels
+      toFieldPath: metadata.labels
+    - type: FromCompositeFieldPath  
+      fromFieldPath: spec.providerConfigRef
+      toFieldPath: spec.providerConfigRef 

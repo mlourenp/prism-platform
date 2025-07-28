@@ -1,0 +1,77 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.6.0
+
+    - name: Validate Release
+      run: |
+        terraform init -backend=false
+        terraform validate
+        terraform fmt -check -recursive
+
+    - name: Extract version
+      id: version
+      run: |
+        VERSION=${GITHUB_REF#refs/tags/}
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "version_number=${VERSION#v}" >> $GITHUB_OUTPUT
+
+    - name: Generate changelog
+      id: changelog
+      run: |
+        if [ -f CHANGELOG.md ]; then
+          # Extract changelog for this version
+          sed -n "/^## \[${{ steps.version.outputs.version_number }}\]/,/^## \[/p" CHANGELOG.md | head -n -1 > release_notes.txt
+        else
+          echo "No CHANGELOG.md found, using git log"
+          git log --pretty=format:"- %s" $(git describe --tags --abbrev=0 HEAD^)..HEAD > release_notes.txt
+        fi
+
+    - name: Create Release Archive
+      run: |
+        # Create clean archive without .git and other non-essential files
+        tar -czf prism-platform-${{ steps.version.outputs.version_number }}.tar.gz \
+          --exclude='.git*' \
+          --exclude='.terraform*' \
+          --exclude='*.tfstate*' \
+          --exclude='.DS_Store' \
+          --exclude='*.log' \
+          .
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        name: Prism Platform ${{ steps.version.outputs.version }}
+        body_path: release_notes.txt
+        files: |
+          prism-platform-${{ steps.version.outputs.version_number }}.tar.gz
+        draft: false
+        prerelease: ${{ contains(steps.version.outputs.version, '-') }}
+        generate_release_notes: true
+
+    - name: Notify Community
+      if: success()
+      run: |
+        echo "Release ${{ steps.version.outputs.version }} has been published!"
+        echo "Download: https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.version }}" 

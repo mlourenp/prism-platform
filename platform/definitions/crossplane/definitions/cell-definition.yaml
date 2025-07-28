@@ -1,0 +1,395 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: cells.saas.example.com
+spec:
+  group: saas.example.com
+  names:
+    kind: Cell
+    plural: cells
+  claimNames:
+    kind: CellClaim
+    plural: cellclaims
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                infrastructureRef:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                      description: "Reference to the regional infrastructure"
+                  required: [name]
+                type:
+                  type: string
+                  enum: [primary, secondary, reporting]
+                  default: primary
+                  description: "Cell type"
+                trafficAllocation:
+                  type: integer
+                  minimum: 0
+                  maximum: 100
+                  default: 50
+                  description: "Percentage of global traffic allocated to this cell"
+                failover:
+                  type: object
+                  properties:
+                    enabled:
+                      type: boolean
+                      default: true
+                    isFailoverTarget:
+                      type: boolean
+                      default: false
+                    priority:
+                      type: integer
+                      default: 1
+                      description: "Lower value means higher priority"
+                  required: [enabled]
+                resources:
+                  type: object
+                  properties:
+                    cpu:
+                      type: object
+                      properties:
+                        reserved:
+                          type: integer
+                          minimum: 0
+                          maximum: 100
+                          default: 50
+                          description: "Reserved CPU percentage"
+                        burstable:
+                          type: integer
+                          minimum: 0
+                          maximum: 100
+                          default: 80
+                          description: "Burstable CPU percentage"
+                      required: [reserved, burstable]
+                    memory:
+                      type: object
+                      properties:
+                        reserved:
+                          type: integer
+                          minimum: 0
+                          maximum: 100
+                          default: 50
+                          description: "Reserved memory percentage"
+                        burstable:
+                          type: integer
+                          minimum: 0
+                          maximum: 100
+                          default: 80
+                          description: "Burstable memory percentage"
+                      required: [reserved, burstable]
+                    storage:
+                      type: object
+                      properties:
+                        reserved:
+                          type: integer
+                          minimum: 0
+                          maximum: 100
+                          default: 50
+                          description: "Reserved storage percentage"
+                      required: [reserved]
+                  required: []
+                services:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                        description: "Service name"
+                      port:
+                        type: integer
+                        description: "Service port"
+                      targetPort:
+                        type: integer
+                        description: "Target port"
+                      protocol:
+                        type: string
+                        enum: [TCP, UDP]
+                        default: TCP
+                      public:
+                        type: boolean
+                        default: false
+                        description: "Whether the service is publicly accessible"
+                      internalOnly:
+                        type: boolean
+                        default: false
+                        description: "Whether the service is only accessible within the cell"
+                    required: [name, port, targetPort]
+                autoscaling:
+                  type: object
+                  properties:
+                    enabled:
+                      type: boolean
+                      default: true
+                    minReplicas:
+                      type: integer
+                      minimum: 1
+                      default: 2
+                    maxReplicas:
+                      type: integer
+                      minimum: 1
+                      default: 10
+                    targetCPUUtilizationPercentage:
+                      type: integer
+                      minimum: 1
+                      maximum: 100
+                      default: 80
+                    targetMemoryUtilizationPercentage:
+                      type: integer
+                      minimum: 1
+                      maximum: 100
+                      default: 80
+                  required: [enabled]
+                monitoring:
+                  type: object
+                  properties:
+                    metrics:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        customMetrics:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                              type:
+                                type: string
+                                enum: [counter, gauge, histogram, summary]
+                              help:
+                                type: string
+                              buckets:
+                                type: array
+                                items:
+                                  type: number
+                            required: [name, type, help]
+                      required: [enabled]
+                    alerts:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        rules:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                              expr:
+                                type: string
+                              for:
+                                type: string
+                              severity:
+                                type: string
+                                enum: [info, warning, critical]
+                              summary:
+                                type: string
+                            required: [name, expr, severity]
+                      required: [enabled]
+                  required: []
+                ingress:
+                  type: object
+                  properties:
+                    enabled:
+                      type: boolean
+                      default: true
+                    hosts:
+                      type: array
+                      items:
+                        type: string
+                    annotations:
+                      type: object
+                      additionalProperties:
+                        type: string
+                    tls:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          secretName:
+                            type: string
+                          hosts:
+                            type: array
+                            items:
+                              type: string
+                        required: [secretName, hosts]
+                  required: [enabled]
+                networkPolicies:
+                  type: object
+                  properties:
+                    enabled:
+                      type: boolean
+                      default: true
+                    ingress:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          from:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                podSelector:
+                                  type: object
+                                  properties:
+                                    matchLabels:
+                                      type: object
+                                      additionalProperties:
+                                        type: string
+                                namespaceSelector:
+                                  type: object
+                                  properties:
+                                    matchLabels:
+                                      type: object
+                                      additionalProperties:
+                                        type: string
+                                ipBlock:
+                                  type: object
+                                  properties:
+                                    cidr:
+                                      type: string
+                                    except:
+                                      type: array
+                                      items:
+                                        type: string
+                                  required: [cidr]
+                          ports:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                protocol:
+                                  type: string
+                                  enum: [TCP, UDP]
+                                port:
+                                  type: integer
+                              required: [protocol, port]
+                    egress:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          to:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                podSelector:
+                                  type: object
+                                  properties:
+                                    matchLabels:
+                                      type: object
+                                      additionalProperties:
+                                        type: string
+                                namespaceSelector:
+                                  type: object
+                                  properties:
+                                    matchLabels:
+                                      type: object
+                                      additionalProperties:
+                                        type: string
+                                ipBlock:
+                                  type: object
+                                  properties:
+                                    cidr:
+                                      type: string
+                                    except:
+                                      type: array
+                                      items:
+                                        type: string
+                                  required: [cidr]
+                          ports:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                protocol:
+                                  type: string
+                                  enum: [TCP, UDP]
+                                port:
+                                  type: integer
+                              required: [protocol, port]
+                  required: [enabled]
+              required: [infrastructureRef]
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum: [Pending, Provisioning, Running, Failed]
+                clusterRef:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                resources:
+                  type: object
+                  properties:
+                    cpu:
+                      type: object
+                      properties:
+                        allocated:
+                          type: string
+                        used:
+                          type: string
+                    memory:
+                      type: object
+                      properties:
+                        allocated:
+                          type: string
+                        used:
+                          type: string
+                    storage:
+                      type: object
+                      properties:
+                        allocated:
+                          type: string
+                        used:
+                          type: string
+                endpoints:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      url:
+                        type: string
+                      internal:
+                        type: boolean
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                      reason:
+                        type: string
+                      message:
+                        type: string
+  conversion:
+    strategy: None

@@ -1,0 +1,237 @@
+apiVersion: monitoring.corrospondent.io/v1alpha1
+kind: ServiceLevelObjective
+metadata:
+  name: api-availability
+  namespace: prism-platform
+spec:
+  description: "API Service Availability SLO"
+  service: "prism-platform-api"
+  sloType: "availability"
+  target: 99.9
+  window: "30d"
+  indicator:
+    prometheus:
+      query: |
+        sum(rate(http_requests_total{service="prism-platform-api",status!~"5.."}[5m]))
+        /
+        sum(rate(http_requests_total{service="prism-platform-api"}[5m]))
+  alerting:
+    burnRateRules:
+      - window: "1h"
+        factor: 14.4
+        severity: critical
+      - window: "6h"
+        factor: 6
+        severity: warning
+      - window: "3d"
+        factor: 1
+        severity: warning
+
+---
+apiVersion: monitoring.corrospondent.io/v1alpha1
+kind: ServiceLevelObjective
+metadata:
+  name: api-latency
+  namespace: prism-platform
+spec:
+  description: "API Service Latency SLO - 95% of requests under 200ms"
+  service: "prism-platform-api"
+  sloType: "latency"
+  target: 95
+  window: "30d"
+  indicator:
+    prometheus:
+      query: |
+        sum(rate(http_request_duration_seconds_bucket{service="prism-platform-api",le="0.2"}[5m]))
+        /
+        sum(rate(http_request_duration_seconds_count{service="prism-platform-api"}[5m]))
+  alerting:
+    burnRateRules:
+      - window: "1h"
+        factor: 14.4
+        severity: critical
+      - window: "6h"
+        factor: 6
+        severity: warning
+
+---
+apiVersion: monitoring.corrospondent.io/v1alpha1
+kind: ServiceLevelObjective
+metadata:
+  name: data-cell-processing
+  namespace: prism-platform
+spec:
+  description: "Data Cell Processing SLO - 99.5% success rate for data processing operations"
+  service: "data-cell"
+  sloType: "availability"
+  target: 99.5
+  window: "7d"
+  indicator:
+    prometheus:
+      query: |
+        sum(rate(data_processing_operations_total{cell="data-cell",status="success"}[5m]))
+        /
+        sum(rate(data_processing_operations_total{cell="data-cell"}[5m]))
+  alerting:
+    burnRateRules:
+      - window: "30m"
+        factor: 14.4
+        severity: critical
+      - window: "2h"
+        factor: 6
+        severity: warning
+
+---
+apiVersion: monitoring.corrospondent.io/v1alpha1
+kind: ServiceLevelObjective
+metadata:
+  name: logic-cell-processing-time
+  namespace: prism-platform
+spec:
+  description: "Logic Cell Processing Time SLO - 99% of operations under 500ms"
+  service: "logic-cell"
+  sloType: "latency"
+  target: 99
+  window: "7d"
+  indicator:
+    prometheus:
+      query: |
+        sum(rate(processing_duration_seconds_bucket{cell="logic-cell",operation="inference",le="0.5"}[5m]))
+        /
+        sum(rate(processing_duration_seconds_count{cell="logic-cell",operation="inference"}[5m]))
+  alerting:
+    burnRateRules:
+      - window: "1h"
+        factor: 14.4
+        severity: critical
+      - window: "6h"
+        factor: 6
+        severity: warning
+
+---
+apiVersion: monitoring.corrospondent.io/v1alpha1
+kind: ServiceLevelObjective
+metadata:
+  name: simulation-cell-correctness
+  namespace: prism-platform
+spec:
+  description: "Simulation Cell Correctness SLO - 99.9% simulation accuracy"
+  service: "simulation-cell"
+  sloType: "correctness"
+  target: 99.9
+  window: "30d"
+  indicator:
+    prometheus:
+      query: |
+        sum(rate(simulation_runs_total{cell="simulation-cell",result="accurate"}[1h]))
+        /
+        sum(rate(simulation_runs_total{cell="simulation-cell"}[1h]))
+  alerting:
+    burnRateRules:
+      - window: "1d"
+        factor: 14.4
+        severity: critical
+      - window: "7d"
+        factor: 6
+        severity: warning
+
+---
+apiVersion: monitoring.corrospondent.io/v1alpha1
+kind: ServiceLevelObjective
+metadata:
+  name: recommendation-cell-latency
+  namespace: prism-platform
+spec:
+  description: "Recommendation Cell Latency SLO - 95% of recommendations generated under 2s"
+  service: "recommendation-cell"
+  sloType: "latency"
+  target: 95
+  window: "7d"
+  indicator:
+    prometheus:
+      query: |
+        sum(rate(recommendation_generation_duration_seconds_bucket{cell="recommendation-cell",le="2"}[5m]))
+        /
+        sum(rate(recommendation_generation_duration_seconds_count{cell="recommendation-cell"}[5m]))
+  alerting:
+    burnRateRules:
+      - window: "1h"
+        factor: 14.4
+        severity: critical
+      - window: "6h"
+        factor: 6
+        severity: warning
+
+---
+apiVersion: monitoring.corrospondent.io/v1alpha1
+kind: ServiceLevelObjective
+metadata:
+  name: database-latency
+  namespace: prism-platform
+spec:
+  description: "Database Latency SLO - 99% of queries under 100ms"
+  service: "prism-platform-db"
+  sloType: "latency"
+  target: 99
+  window: "7d"
+  indicator:
+    prometheus:
+      query: |
+        sum(rate(database_query_duration_seconds_bucket{service="prism-platform-db",le="0.1"}[5m]))
+        /
+        sum(rate(database_query_duration_seconds_count{service="prism-platform-db"}[5m]))
+  alerting:
+    burnRateRules:
+      - window: "10m"
+        factor: 14.4
+        severity: critical
+      - window: "1h"
+        factor: 6
+        severity: warning
+
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceLevelObjective
+metadata:
+  name: workload-processing-accuracy
+  namespace: prism-platform
+spec:
+  description: "Workload Processing Accuracy SLO - 99.5% successful processing"
+  service: "workload-processor"
+  sloType: "correctness"
+  target: 99.5
+  window: "30d"
+  indicator:
+    prometheus:
+      query: |
+        sum(increase(workload_processing_success_total[24h]))
+        /
+        sum(increase(workload_processing_total[24h]))
+  alerting:
+    burnRateRules:
+      - window: "1d"
+        factor: 14.4
+        severity: critical
+      - window: "7d"
+        factor: 6
+        severity: warning
+
+---
+# SLO Implementation Instructions
+#
+# 1. Install the SLO operator (if not already installed):
+#    kubectl apply -f https://github.com/slok/sloth/releases/download/v0.9.0/sloth.yaml
+#
+# 2. Apply the SLO definitions:
+#    kubectl apply -f kubernetes/observability/slo-definitions.yaml
+#
+# 3. Verify SLO creation:
+#    kubectl get servicelevelobjectives -n prism-platform
+#
+# 4. The operator will automatically create PrometheusRules for alerting based on the SLO definitions
+#    kubectl get prometheusrules -n prism-platform
+#
+# 5. The SLOs will appear in Grafana dashboards if the SLO dashboard is installed
+#
+# Note: Ensure that your application is exporting the required metrics used in the SLO queries.
+#       Modify the metric names and queries to match your actual metrics.

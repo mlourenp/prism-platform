@@ -1,0 +1,50 @@
+# Merbridge configuration for Kubernetes
+merbridge:
+  image:
+    repository: merbridge/merbridge
+    tag: v0.5.0
+
+  # Enable eBPF acceleration for Istio
+  istio:
+    enabled: true
+    version: "1.26.1"
+
+  # CNI configuration
+  cni:
+    enabled: true
+    chained: true
+    confName: "10-merbridge.conflist"
+
+  # eBPF configuration
+  ebpf:
+    enabled: true
+    debug: false
+
+  # Performance tuning
+  performance:
+    cpuLimit: "1000m"
+    memoryLimit: "1Gi"
+    cpuRequest: "100m"
+    memoryRequest: "128Mi"
+
+  # Security settings
+  security:
+    runAsNonRoot: false
+    privileged: true
+    capabilities:
+      add:
+        - NET_ADMIN
+        - SYS_ADMIN
+        - SYS_RESOURCE
+
+  # Monitoring
+  monitoring:
+    enabled: true
+    prometheus:
+      enabled: true
+      port: 9090
+
+  # Logging
+  logging:
+    level: "info"
+    format: "json"

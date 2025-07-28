@@ -1,0 +1,31 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namePrefix: staging-
+namespace: prism-platform-staging
+
+resources:
+- ../base
+
+patches:
+- path: patches/resources.yaml
+  target:
+    kind: Deployment
+- path: patches/replicas.yaml
+  target:
+    kind: Deployment
+
+configMapGenerator:
+- name: env-config
+  literals:
+  - ENVIRONMENT=staging
+  - DEBUG=false
+  - LOG_LEVEL=INFO
+  - METRICS_ENABLED=true
+  - PROMETHEUS_ENDPOINT=http://prometheus:9090
+  - GRAFANA_ENDPOINT=http://grafana:3000
+
+secretGenerator:
+- name: database-credentials
+  literals:
+  - url=postgresql://postgres:staging@db:5432/prism_platform_staging

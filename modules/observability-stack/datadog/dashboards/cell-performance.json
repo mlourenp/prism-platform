@@ -1,0 +1,20 @@
+{
+  "title": "Prism Cell Performance",
+  "description": "Detailed performance metrics for Prism cell architecture",
+  "widgets": [
+    {
+      "id": 1,
+      "definition": {
+        "type": "timeseries",
+        "title": "Cell Network Throughput",
+        "requests": [
+          {
+            "q": "avg:prism.cell.network.throughput{*} by {cell_type,namespace}"
+          }
+        ]
+      }
+    }
+  ],
+  "layout_type": "ordered",
+  "tags": ["platform:prism", "component:cells"]
+} 

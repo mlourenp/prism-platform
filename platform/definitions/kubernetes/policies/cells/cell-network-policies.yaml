@@ -1,0 +1,187 @@
+---
+# Cell-based Network Policies using Cilium
+# These policies define the communication patterns between cells in the cell-based architecture
+
+apiVersion: "cilium.io/v2"
+kind: CiliumNetworkPolicy
+metadata:
+  name: cell-to-cell-policy
+  namespace: prism-platform
+spec:
+  description: "Policy for inter-cell communication"
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/component: cell
+  ingress:
+    # Allow traffic from other cells only through designated APIs
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/component: cell
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+          rules:
+            http:
+              - method: "GET"
+                path: "/api/v1/cell"
+              - method: "POST"
+                path: "/api/v1/cell"
+              - method: "PUT"
+                path: "/api/v1/cell"
+  egress:
+    # Allow cells to communicate with specific external services
+    - toFQDNs:
+        - matchPattern: "*.svc.cluster.local"
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+            - port: "443"
+              protocol: TCP
+    # Allow cells to communicate with monitoring infrastructure
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/component: monitoring
+      toPorts:
+        - ports:
+            - port: "9090"
+              protocol: TCP
+---
+apiVersion: "cilium.io/v2"
+kind: CiliumNetworkPolicy
+metadata:
+  name: cell1-specific-policy
+  namespace: prism-platform
+spec:
+  description: "Specific network policy for Cell 1"
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/component: cell
+      cell.prism-platform.io/name: cell-1
+  ingress:
+    # Allow traffic from specific cells that need to communicate with cell-1
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/component: cell
+            cell.prism-platform.io/name: cell-2
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+          rules:
+            http:
+              - method: "GET"
+                path: "/api/v1/cell-1/status"
+  egress:
+    # Allow cell-1 to communicate with specific external services it needs
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/component: database
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+---
+apiVersion: "cilium.io/v2"
+kind: CiliumNetworkPolicy
+metadata:
+  name: cell2-specific-policy
+  namespace: prism-platform
+spec:
+  description: "Specific network policy for Cell 2"
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/component: cell
+      cell.prism-platform.io/name: cell-2
+  ingress:
+    # Allow traffic from specific cells that need to communicate with cell-2
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/component: cell
+            cell.prism-platform.io/name: cell-3
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+          rules:
+            http:
+              - method: "GET"
+                path: "/api/v1/cell-2/status"
+  egress:
+    # Allow cell-2 to communicate with specific external services it needs
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/component: message-queue
+      toPorts:
+        - ports:
+            - port: "5672"
+              protocol: TCP
+---
+# Policy to enforce drift detection and correction traffic flows
+apiVersion: "cilium.io/v2"
+kind: CiliumNetworkPolicy
+metadata:
+  name: drift-detection-policy
+  namespace: prism-platform
+spec:
+  description: "Policy for drift detection and correction components"
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/component: drift-detector
+  ingress:
+    # Allow monitoring components to scrape metrics
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/component: monitoring
+      toPorts:
+        - ports:
+            - port: "9090"
+              protocol: TCP
+  egress:
+    # Allow drift detector to probe cells
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/component: cell
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # Allow drift detector to write metrics
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: prometheus
+      toPorts:
+        - ports:
+            - port: "9090"
+              protocol: TCP
+---
+# Policy with eBPF-specific visibility enhancements
+apiVersion: "cilium.io/v2"
+kind: CiliumNetworkPolicy
+metadata:
+  name: ebpf-enhanced-visibility
+  namespace: prism-platform
+spec:
+  description: "Enhanced policy with eBPF visibility for all cell traffic"
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: prism-platform
+  ingress:
+    - fromEndpoints:
+        - matchLabels: {}
+  egress:
+    - toEndpoints:
+        - matchLabels: {}
+  # Enhanced eBPF visibility settings
+  specs:
+    - description: "Enhanced monitoring capabilities"
+      flowVisibility:
+        enabled: true
+        flowLogsEnabled: true
+      dnsVisibility:
+        enabled: true
+        matchPattern: "*"
+      httpVisibility:
+        enabled: true
+        matchPattern: "*"

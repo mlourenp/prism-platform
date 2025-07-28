@@ -1,0 +1,135 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: merbridge
+  namespace: istio-system
+  labels:
+    app: merbridge
+    component: merbridge-agent
+spec:
+  selector:
+    matchLabels:
+      app: merbridge
+      component: merbridge-agent
+  template:
+    metadata:
+      labels:
+        app: merbridge
+        component: merbridge-agent
+      annotations:
+        # This annotation is needed for Merbridge to work properly
+        sidecar.istio.io/inject: "false"
+    spec:
+      # Add node selector to target only AL2023 nodes
+      nodeSelector:
+        eks.amazonaws.com/nodegroup: al2023-cgroupv2
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      serviceAccountName: merbridge
+      containers:
+      - name: merbridge-agent
+        image: merbridge/merbridge:latest
+        imagePullPolicy: Always
+        securityContext:
+          privileged: true
+          capabilities:
+            add:
+            - NET_ADMIN
+            - SYS_ADMIN
+            - SYS_PTRACE
+        command: ["/app/mbctl"]
+        args:
+          # Add kind mode to help with cgroup issues
+          - "--kind"
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        # Merbridge configuration
+        - name: MERBRIDGE_MODE
+          value: "auto"
+        - name: MERBRIDGE_LOG_LEVEL
+          value: "info"
+        - name: ENABLE_ACCELERATION
+          value: "true"
+        # Add cgroup path
+        - name: CGROUP2_PATH
+          value: "/sys/fs/cgroup"
+        resources:
+          limits:
+            cpu: 500m
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        volumeMounts:
+        - name: bpffs
+          mountPath: /sys/fs/bpf
+          mountPropagation: Bidirectional
+        - name: sysfs
+          mountPath: /sys/fs
+          readOnly: true
+        - name: debugfs
+          mountPath: /sys/kernel/debug
+        # Add cgroup mount
+        - name: cgroup
+          mountPath: /sys/fs/cgroup
+          readOnly: true
+      volumes:
+      - name: bpffs
+        hostPath:
+          path: /sys/fs/bpf
+          type: DirectoryOrCreate
+      - name: sysfs
+        hostPath:
+          path: /sys/fs
+          type: Directory
+      - name: debugfs
+        hostPath:
+          path: /sys/kernel/debug
+          type: DirectoryOrCreate
+      # Add cgroup volume
+      - name: cgroup
+        hostPath:
+          path: /sys/fs/cgroup
+          type: Directory
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: merbridge
+  namespace: istio-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: merbridge
+rules:
+- apiGroups: [""]
+  resources: ["pods", "nodes", "namespaces"]
+  verbs: ["get", "watch", "list"]
+- apiGroups: ["networking.istio.io"]
+  resources: ["destinationrules", "virtualservices", "gateways", "serviceentries"]
+  verbs: ["get", "watch", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: merbridge
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: merbridge
+subjects:
+- kind: ServiceAccount
+  name: merbridge
+  namespace: istio-system

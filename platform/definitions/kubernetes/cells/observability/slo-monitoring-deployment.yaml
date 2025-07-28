@@ -1,0 +1,221 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: slo-monitoring
+  namespace: observability-cell
+  labels:
+    app: prism-platform
+    component: slo-monitoring
+    cell-type: observability
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: prism-platform
+      component: slo-monitoring
+  template:
+    metadata:
+      labels:
+        app: prism-platform
+        component: slo-monitoring
+        cell-type: observability
+      annotations:
+        instrumentation.opentelemetry.io/inject-python: "true"
+        instrumentation.opentelemetry.io/resource-attributes: "service.name=slo-monitoring,service.namespace=observability-cell"
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: slo-monitoring
+          image: prism-platform/slo-monitoring:latest
+          imagePullPolicy: Always
+          env:
+            - name: LOG_LEVEL
+              value: "INFO"
+            - name: PROMETHEUS_PORT
+              value: "8080"
+            - name: EXPORT_METRICS
+              value: "true"
+            - name: CONFIG_PATH
+              value: "/config/slo-config.json"
+          ports:
+            - containerPort: 8080
+              name: http
+            - containerPort: 9090
+              name: api
+          volumeMounts:
+            - name: config-volume
+              mountPath: /config
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "512Mi"
+            limits:
+              cpu: "500m"
+              memory: "1Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 9090
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /readiness
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: config-volume
+          configMap:
+            name: slo-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: slo-monitoring
+  namespace: observability-cell
+  labels:
+    app: prism-platform
+    component: slo-monitoring
+    cell-type: observability
+spec:
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: metrics
+    - port: 9090
+      targetPort: 9090
+      protocol: TCP
+      name: api
+  selector:
+    app: prism-platform
+    component: slo-monitoring
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: slo-config
+  namespace: observability-cell
+  labels:
+    app: prism-platform
+    component: slo-monitoring
+    cell-type: observability
+data:
+  slo-config.json: |
+    {
+      "slos": [
+        {
+          "name": "api_availability",
+          "description": "API availability SLO",
+          "owner": "API Team",
+          "target": 0.999,
+          "window": "30d"
+        },
+        {
+          "name": "api_latency",
+          "description": "API latency SLO (95% of requests under 200ms)",
+          "owner": "API Team",
+          "target": 0.95,
+          "window": "7d"
+        },
+        {
+          "name": "database_query_success",
+          "description": "Database query success rate SLO",
+          "owner": "Data Team",
+          "target": 0.999,
+          "window": "7d"
+        },
+        {
+          "name": "batch_job_success",
+          "description": "Batch job success rate SLO",
+          "owner": "Data Team",
+          "target": 0.98,
+          "window": "7d"
+        },
+        {
+          "name": "recommendation_service_latency",
+          "description": "Recommendation service latency SLO (90% under 500ms)",
+          "owner": "ML Team",
+          "target": 0.9,
+          "window": "7d"
+        },
+        {
+          "name": "quantum_gateway_availability",
+          "description": "Quantum gateway availability SLO",
+          "owner": "Quantum Team",
+          "target": 0.99,
+          "window": "7d"
+        }
+      ],
+      "prometheus_port": 8080,
+      "export_metrics": true
+    }
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: slo-monitoring
+  namespace: monitoring
+  labels:
+    app: prism-platform
+    component: slo-monitoring
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: prism-platform
+      component: slo-monitoring
+  namespaceSelector:
+    matchNames:
+      - observability-cell
+  endpoints:
+    - port: metrics
+      interval: 15s
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: slo-monitoring-network-policy
+  namespace: observability-cell
+spec:
+  podSelector:
+    matchLabels:
+      app: prism-platform
+      component: slo-monitoring
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: prism-platform
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 9090
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: prism-platform
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+        - podSelector: {}
+          namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 443

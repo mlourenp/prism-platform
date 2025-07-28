@@ -1,0 +1,6 @@
+nodeSelector:
+  cgroupVersion: v2
+tolerations:
+- key: "workload-type"
+  operator: "Exists"
+  effect: "NoSchedule"

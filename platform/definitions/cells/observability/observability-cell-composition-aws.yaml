@@ -1,0 +1,585 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: observability-cells.aws.prism-platform.example.com
+  labels:
+    provider: aws
+    cellType: observability
+spec:
+  compositeTypeRef:
+    apiVersion: prism-platform.example.com/v1alpha1
+    kind: Cell
+  writeConnectionSecretsToNamespace: crossplane-system
+  patchSets:
+    - name: common-labels
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.labels
+  resources:
+    # Kubernetes namespace resource for the observability cell
+    - name: namespace
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: "observability-cell"
+                labels:
+                  app: prism-platform
+                  cellType: observability
+                  managed-by: crossplane
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellType
+          toFieldPath: spec.forProvider.manifest.metadata.labels.cellType
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.labels.cell-instance
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Persistent Volume Claim for observability data
+    - name: storage
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: PersistentVolumeClaim
+              metadata:
+                name: "observability-storage"
+                namespace: "observability-cell"
+                labels:
+                  app: prism-platform
+                  cellType: observability
+                  managed-by: crossplane
+              spec:
+                accessModes:
+                  - ReadWriteOnce
+                resources:
+                  requests:
+                    storage: "50Gi"
+                storageClassName: gp2
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.resources.storage
+          toFieldPath: spec.forProvider.manifest.spec.resources.requests.storage
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-storage"
+
+    # Deployment for Prometheus monitoring
+    - name: prometheus
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: "prometheus"
+                namespace: "observability-cell"
+                labels:
+                  app: prism-platform
+                  component: prometheus
+                  cellType: observability
+                  managed-by: crossplane
+              spec:
+                replicas: 1
+                selector:
+                  matchLabels:
+                    app: prism-platform
+                    component: prometheus
+                template:
+                  metadata:
+                    labels:
+                      app: prism-platform
+                      component: prometheus
+                  spec:
+                    containers:
+                    - name: prometheus
+                      image: prom/prometheus:v2.36.2
+                      ports:
+                      - containerPort: 9090
+                      args:
+                      - "--config.file=/etc/prometheus/prometheus.yml"
+                      - "--storage.tsdb.path=/prometheus"
+                      - "--storage.tsdb.retention.time=15d"
+                      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+                      - "--web.console.templates=/usr/share/prometheus/consoles"
+                      resources:
+                        limits:
+                          cpu: "8"
+                          memory: "32Gi"
+                        requests:
+                          cpu: "4"
+                          memory: "8Gi"
+                      volumeMounts:
+                      - name: prometheus-config
+                        mountPath: /etc/prometheus/
+                      - name: prometheus-storage
+                        mountPath: /prometheus
+                    volumes:
+                    - name: prometheus-config
+                      configMap:
+                        name: prometheus-config
+                    - name: prometheus-storage
+                      persistentVolumeClaim:
+                        claimName: "observability-storage"
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.resources.cpu
+          toFieldPath: spec.forProvider.manifest.spec.template.spec.containers[0].resources.requests.cpu
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.resources.memory
+          toFieldPath: spec.forProvider.manifest.spec.template.spec.containers[0].resources.requests.memory
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.spec.template.spec.volumes[1].persistentVolumeClaim.claimName
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-storage"
+
+    # Deployment for Grafana dashboard
+    - name: grafana
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: "grafana"
+                namespace: "observability-cell"
+                labels:
+                  app: prism-platform
+                  component: grafana
+                  cellType: observability
+                  managed-by: crossplane
+              spec:
+                replicas: 1
+                selector:
+                  matchLabels:
+                    app: prism-platform
+                    component: grafana
+                template:
+                  metadata:
+                    labels:
+                      app: prism-platform
+                      component: grafana
+                  spec:
+                    containers:
+                    - name: grafana
+                      image: grafana/grafana:9.1.0
+                      ports:
+                      - containerPort: 3000
+                      env:
+                      - name: GF_SECURITY_ADMIN_PASSWORD
+                        value: "admin"  # In production, use a secret
+                      - name: GF_USERS_ALLOW_SIGN_UP
+                        value: "false"
+                      resources:
+                        limits:
+                          cpu: "8"
+                          memory: "32Gi"
+                        requests:
+                          cpu: "500m"
+                          memory: "512Mi"
+                      volumeMounts:
+                      - name: grafana-storage
+                        mountPath: /var/lib/grafana
+                    volumes:
+                    - name: grafana-storage
+                      persistentVolumeClaim:
+                        claimName: "observability-storage"
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.resources.cpu
+          toFieldPath: spec.forProvider.manifest.spec.template.spec.containers[0].resources.requests.cpu
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.resources.memory
+          toFieldPath: spec.forProvider.manifest.spec.template.spec.containers[0].resources.requests.memory
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.spec.template.spec.volumes[0].persistentVolumeClaim.claimName
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-storage"
+
+    # Deployment for the OpenTelemetry Collector
+    - name: otel-collector
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: "otel-collector"
+                namespace: "observability-cell"
+                labels:
+                  app: prism-platform
+                  component: otel-collector
+                  cellType: observability
+                  managed-by: crossplane
+              spec:
+                replicas: 1
+                selector:
+                  matchLabels:
+                    app: prism-platform
+                    component: otel-collector
+                template:
+                  metadata:
+                    labels:
+                      app: prism-platform
+                      component: otel-collector
+                  spec:
+                    containers:
+                    - name: otel-collector
+                      image: otel/opentelemetry-collector:0.55.0
+                      ports:
+                      - containerPort: 4317  # OTLP gRPC
+                      - containerPort: 4318  # OTLP HTTP
+                      - containerPort: 8888  # Metrics
+                      resources:
+                        limits:
+                          cpu: "2"
+                          memory: "4Gi"
+                        requests:
+                          cpu: "1"
+                          memory: "2Gi"
+                      volumeMounts:
+                      - name: otel-collector-config
+                        mountPath: /etc/otel-collector/
+                    volumes:
+                    - name: otel-collector-config
+                      configMap:
+                        name: otel-collector-config
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.resources.cpu
+          toFieldPath: spec.forProvider.manifest.spec.template.spec.containers[0].resources.requests.cpu
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.resources.memory
+          toFieldPath: spec.forProvider.manifest.spec.template.spec.containers[0].resources.requests.memory
+
+    # ConfigMap for Prometheus configuration
+    - name: prometheus-config
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: "prometheus-config"
+                namespace: "observability-cell"
+                labels:
+                  app: prism-platform
+                  component: prometheus-config
+                  cellType: observability
+                  managed-by: crossplane
+              data:
+                prometheus.yml: |
+                  global:
+                    scrape_interval: 15s
+
+                  scrape_configs:
+                    - job_name: 'kubernetes-pods'
+                      kubernetes_sd_configs:
+                        - role: pod
+                      relabel_configs:
+                        - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+                          action: keep
+                          regex: true
+                        - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+                          action: replace
+                          target_label: __metrics_path__
+                          regex: (.+)
+                        - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+                          action: replace
+                          regex: ([^:]+)(?::\d+)?;(\d+)
+                          replacement: $1:$2
+                          target_label: __address__
+                        - action: labelmap
+                          regex: __meta_kubernetes_pod_label_(.+)
+                        - source_labels: [__meta_kubernetes_namespace]
+                          action: replace
+                          target_label: kubernetes_namespace
+                        - source_labels: [__meta_kubernetes_pod_name]
+                          action: replace
+                          target_label: kubernetes_pod_name
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # ConfigMap for OpenTelemetry Collector
+    - name: otel-collector-config
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: "otel-collector-config"
+                namespace: "observability-cell"
+                labels:
+                  app: prism-platform
+                  component: otel-collector-config
+                  cellType: observability
+                  managed-by: crossplane
+              data:
+                otel-collector-config.yaml: |
+                  receivers:
+                    otlp:
+                      protocols:
+                        grpc:
+                        http:
+
+                  processors:
+                    batch:
+                    memory_limiter:
+                      limit_mib: 400
+                      check_interval: 5s
+
+                  exporters:
+                    prometheus:
+                      endpoint: "0.0.0.0:8889"
+                    logging:
+                      loglevel: debug
+
+                  service:
+                    pipelines:
+                      metrics:
+                        receivers: [otlp]
+                        processors: [batch, memory_limiter]
+                        exporters: [prometheus, logging]
+                      traces:
+                        receivers: [otlp]
+                        processors: [batch, memory_limiter]
+                        exporters: [logging]
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Service for Prometheus
+    - name: prometheus-svc
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: "prometheus"
+                namespace: "observability-cell"
+                labels:
+                  app: prism-platform
+                  component: prometheus
+                  cellType: observability
+                  managed-by: crossplane
+              spec:
+                ports:
+                - port: 9090
+                  targetPort: 9090
+                  protocol: TCP
+                  name: web
+                selector:
+                  app: prism-platform
+                  component: prometheus
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Service for Grafana
+    - name: grafana-svc
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: "grafana"
+                namespace: "observability-cell"
+                labels:
+                  app: prism-platform
+                  component: grafana
+                  cellType: observability
+                  managed-by: crossplane
+              spec:
+                ports:
+                - port: 3000
+                  targetPort: 3000
+                  protocol: TCP
+                  name: web
+                selector:
+                  app: prism-platform
+                  component: grafana
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Service for OpenTelemetry Collector
+    - name: otel-collector-svc
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: "otel-collector"
+                namespace: "observability-cell"
+                labels:
+                  app: prism-platform
+                  component: otel-collector
+                  cellType: observability
+                  managed-by: crossplane
+              spec:
+                ports:
+                - port: 4317
+                  targetPort: 4317
+                  protocol: TCP
+                  name: otlp-grpc
+                - port: 4318
+                  targetPort: 4318
+                  protocol: TCP
+                  name: otlp-http
+                - port: 8888
+                  targetPort: 8888
+                  protocol: TCP
+                  name: metrics
+                selector:
+                  app: prism-platform
+                  component: otel-collector
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"

@@ -1,0 +1,227 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: data-cells.aws.prism-platform.example.com
+  labels:
+    provider: aws
+    cellType: data
+spec:
+  compositeTypeRef:
+    apiVersion: prism-platform.example.com/v1alpha1
+    kind: Cell
+  writeConnectionSecretsToNamespace: crossplane-system
+  patchSets:
+    - name: common-labels
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.labels
+  resources:
+    # Kubernetes namespace resource for the data cell
+    - name: namespace
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: "data-cell"
+                labels:
+                  app: prism-platform
+                  cellType: data
+                  managed-by: crossplane
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellType
+          toFieldPath: spec.forProvider.manifest.metadata.labels.cellType
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.labels.cell-instance
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Persistent Volume Claim for the data cell
+    - name: storage
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: PersistentVolumeClaim
+              metadata:
+                name: "data-cell-storage"
+                namespace: "data-cell"
+                labels:
+                  app: prism-platform
+                  cellType: data
+                  managed-by: crossplane
+              spec:
+                accessModes:
+                  - ReadWriteOnce
+                resources:
+                  requests:
+                    storage: "10Gi"
+                storageClassName: gp2
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.resources.storage
+          toFieldPath: spec.forProvider.manifest.spec.resources.requests.storage
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-storage"
+
+    # Deployment for the data cell database service
+    - name: database-service
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: "data-db-service"
+                namespace: "data-cell"
+                labels:
+                  app: prism-platform
+                  component: database
+                  cellType: data
+                  managed-by: crossplane
+                annotations:
+                  instrumentation.opentelemetry.io/inject-java: "true"
+                  instrumentation.opentelemetry.io/resource-attributes: "service.name=data-db-service,service.namespace=data-cell"
+              spec:
+                replicas: 1
+                selector:
+                  matchLabels:
+                    app: prism-platform
+                    component: database
+                template:
+                  metadata:
+                    labels:
+                      app: prism-platform
+                      component: database
+                    annotations:
+                      instrumentation.opentelemetry.io/inject-java: "true"
+                      instrumentation.opentelemetry.io/resource-attributes: "service.name=data-db-service,service.namespace=data-cell"
+                  spec:
+                    containers:
+                    - name: postgres
+                      image: postgres:13
+                      ports:
+                      - containerPort: 5432
+                      env:
+                      - name: POSTGRES_PASSWORD
+                        value: "postgres" # In production, use a secret
+                      - name: POSTGRES_USER
+                        value: "postgres"
+                      - name: POSTGRES_DB
+                        value: "prism_platform"
+                      resources:
+                        limits:
+                          cpu: "8"
+                          memory: "32Gi"
+                        requests:
+                          cpu: "500m"
+                          memory: "1Gi"
+                      volumeMounts:
+                      - name: postgres-data
+                        mountPath: /var/lib/postgresql/data
+                    volumes:
+                    - name: postgres-data
+                      persistentVolumeClaim:
+                        claimName: "data-cell-storage"
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.resources.cpu
+          toFieldPath: spec.forProvider.manifest.spec.template.spec.containers[0].resources.requests.cpu
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.resources.memory
+          toFieldPath: spec.forProvider.manifest.spec.template.spec.containers[0].resources.requests.memory
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.spec.template.spec.volumes[0].persistentVolumeClaim.claimName
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-storage"
+
+    # Service for the database
+    - name: database-service-svc
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: "data-db-service"
+                namespace: "data-cell"
+                labels:
+                  app: prism-platform
+                  component: database
+                  cellType: data
+                  managed-by: crossplane
+              spec:
+                ports:
+                - port: 5432
+                  targetPort: 5432
+                  protocol: TCP
+                  name: postgres
+                selector:
+                  app: prism-platform
+                  component: database
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"

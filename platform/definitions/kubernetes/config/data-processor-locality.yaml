@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: data-processor-locality
+  namespace: prism-platform
+data:
+  enable_local_processing: "true"
+  cross_az_threshold: "100MB"
+  local_aggregation: "true"
+  edge_preprocessing: "true"

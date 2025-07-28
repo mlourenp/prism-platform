@@ -1,0 +1,200 @@
+# Falco configuration for Prism Platform
+# Threat detection and compliance monitoring
+
+# Falco driver configuration
+driver:
+  kind: "ebpf"  # Use eBPF driver for modern kernels
+  
+  # eBPF probe configuration
+  ebpf:
+    enabled: true
+    probe: ""
+    hostNetwork: true
+    
+# Falco configuration
+falco:
+  # Rules configuration
+  rules_file:
+  - /etc/falco/falco_rules.yaml
+  - /etc/falco/falco_rules.local.yaml
+  - /etc/falco/k8s_audit_rules.yaml
+  - /etc/falco/rules.d
+  
+  # Time format
+  time_format_iso_8601: true
+  
+  # JSON output
+  json_output: true
+  json_include_output_property: true
+  json_include_tags_property: true
+  
+  # Log level
+  log_level: info
+  log_stderr: true
+  log_syslog: false
+  
+  # Priority threshold
+  priority: debug
+  
+  # Rate limiting
+  outputs_rate: 1
+  max_events_per_second: 0
+
+# Container runtime
+containerRuntime:
+  runtime: containerd
+  runtimePath: /run/containerd/containerd.sock
+
+# Resource configuration
+resources:
+  requests:
+    cpu: 100m
+    memory: 512Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+# Service account
+serviceAccount:
+  create: true
+  name: "falco"
+
+# Outputs configuration
+outputs:
+  # Standard output
+  stdout:
+    enabled: true
+    
+  # File output
+  file:
+    enabled: true
+    filename: "/var/log/falco/events.txt"
+    
+  # gRPC output
+  grpc:
+    enabled: false
+    
+  # HTTP output  
+  http:
+    enabled: false
+
+# Prometheus metrics
+metrics:
+  enabled: true
+  interval: 1h
+  
+  serviceMonitor:
+    enabled: true
+
+# Kubernetes audit logs
+k8sAuditEndpoint:
+  enabled: false  # Disable for now, can be enabled later
+
+# gRPC configuration
+grpc:
+  enabled: false
+  bind_address: "0.0.0.0:5060"
+  threadiness: 8
+
+# Webserver for health checks
+webserver:
+  enabled: true
+  listen_port: 8765
+  k8s_healthz_endpoint: "/healthz"
+  ssl_enabled: false
+
+# Node selector
+nodeSelector:
+  kubernetes.io/os: linux
+
+# Tolerations for security monitoring on all nodes
+tolerations:
+- operator: Exists
+  effect: NoSchedule
+- operator: Exists
+  effect: NoExecute
+
+# Pod security context
+podSecurityContext:
+  runAsNonRoot: false
+  runAsUser: 0
+  fsGroup: 0
+
+# Security context
+securityContext:
+  privileged: true
+  allowPrivilegeEscalation: true
+  readOnlyRootFilesystem: false
+  capabilities:
+    add:
+    - SYS_ADMIN
+    - SYS_RESOURCE
+    - SYS_PTRACE
+    - NET_ADMIN
+    - NET_RAW
+    - IPC_LOCK
+    - BPF
+
+# Host volumes
+hostNetwork: true
+hostPID: true
+
+# Priority class
+priorityClassName: "system-node-critical"
+
+# Custom rules for Prism platform
+customRules:
+  prism_rules.yaml: |
+    # Prism-specific security rules
+    
+    # Cell communication monitoring
+    - rule: Unauthorized Cell Communication
+      desc: Detect unauthorized communication between cells
+      condition: >
+        k8s_audit and
+        ka.verb in (create,update,patch) and
+        ka.target.resource="services" and
+        ka.target.namespace matches ".*-cell" and
+        not ka.user.name in (system:serviceaccount:kube-system:*)
+      output: >
+        Unauthorized cell service modification
+        (user=%ka.user.name verb=%ka.verb resource=%ka.target.resource
+        namespace=%ka.target.namespace)
+      priority: WARNING
+      tags: [prism, cells, security]
+      
+    # Sensitive file access in cells
+    - rule: Sensitive File Access in Cell
+      desc: Detect access to sensitive files within cell namespaces
+      condition: >
+        open_read and
+        k8s.ns.name matches ".*-cell" and
+        fd.name in (/etc/passwd, /etc/shadow, /etc/hosts, /etc/ssh/ssh_host*)
+      output: >
+        Sensitive file access in cell
+        (file=%fd.name namespace=%k8s.ns.name container=%container.name
+        command=%proc.cmdline)
+      priority: WARNING
+      tags: [prism, cells, files]
+      
+    # Privileged container in non-security cells
+    - rule: Privileged Container in Non-Security Cell
+      desc: Detect privileged containers outside security cell
+      condition: >
+        container_started and
+        container.privileged=true and
+        k8s.ns.name matches ".*-cell" and
+        not k8s.ns.name="security-cell"
+      output: >
+        Privileged container outside security cell
+        (container=%container.name namespace=%k8s.ns.name
+        image=%container.image.repository)
+      priority: HIGH
+      tags: [prism, cells, privilege]
+
+# Image configuration
+image:
+  registry: docker.io
+  repository: falcosecurity/falco-no-driver
+  tag: 0.37.0
+  pullPolicy: IfNotPresent 

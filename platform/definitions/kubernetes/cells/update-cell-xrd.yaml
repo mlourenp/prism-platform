@@ -1,0 +1,60 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: cells.prism-platform.example.com
+spec:
+  claimNames:
+    kind: CellClaim
+    plural: cellclaims
+  group: prism-platform.example.com
+  names:
+    kind: Cell
+    plural: cells
+  versions:
+  - name: v1alpha1
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        properties:
+          spec:
+            properties:
+              cellType:
+                enum:
+                - data
+                - logic
+                - legacy
+                - external
+                - security
+                - integration
+                - observability
+                - channel
+                type: string
+              cloudProvider:
+                enum:
+                - aws
+                - gcp
+                - azure
+                - on-prem
+                type: string
+              priority:
+                maximum: 10
+                minimum: 1
+                type: integer
+              region:
+                type: string
+              resources:
+                properties:
+                  cpu:
+                    type: string
+                  memory:
+                    type: string
+                  storage:
+                    type: string
+                type: object
+            required:
+            - cellType
+            - region
+            - cloudProvider
+            type: object
+        type: object
+    served: true

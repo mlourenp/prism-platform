@@ -1,0 +1,518 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: channel-cells.aws.prism-platform.example.com
+  labels:
+    provider: aws
+    cellType: channel
+spec:
+  compositeTypeRef:
+    apiVersion: prism-platform.example.com/v1alpha1
+    kind: Cell
+  writeConnectionSecretsToNamespace: crossplane-system
+  patchSets:
+    - name: common-labels
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.labels
+  resources:
+    # Kubernetes namespace resource for the channel cell
+    - name: namespace
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: "channel-cell"
+                labels:
+                  app: prism-platform
+                  cellType: channel
+                  managed-by: crossplane
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellType
+          toFieldPath: spec.forProvider.manifest.metadata.labels.cellType
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.labels.cell-instance
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Persistent Volume Claim for the channel cell
+    - name: storage
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: PersistentVolumeClaim
+              metadata:
+                name: "channel-storage"
+                namespace: "channel-cell"
+                labels:
+                  app: prism-platform
+                  cellType: channel
+                  managed-by: crossplane
+              spec:
+                accessModes:
+                  - ReadWriteOnce
+                resources:
+                  requests:
+                    storage: "50Gi"
+                storageClassName: gp2
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.resources.storage
+          toFieldPath: spec.forProvider.manifest.spec.resources.requests.storage
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-storage"
+
+    # Deployment for Kafka message broker
+    - name: kafka
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: "kafka"
+                namespace: "channel-cell"
+                labels:
+                  app: prism-platform
+                  component: kafka
+                  cellType: channel
+                  managed-by: crossplane
+              spec:
+                replicas: 1
+                selector:
+                  matchLabels:
+                    app: prism-platform
+                    component: kafka
+                template:
+                  metadata:
+                    labels:
+                      app: prism-platform
+                      component: kafka
+                  spec:
+                    containers:
+                    - name: kafka
+                      image: confluentinc/cp-kafka:latest
+                      ports:
+                      - containerPort: 9092
+                      env:
+                      - name: KAFKA_BROKER_ID
+                        value: "1"
+                      - name: KAFKA_ZOOKEEPER_CONNECT
+                        value: "zookeeper:2181"
+                      - name: KAFKA_ADVERTISED_LISTENERS
+                        value: "PLAINTEXT://kafka:9092"
+                      - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+                        value: "1"
+                      resources:
+                        limits:
+                          cpu: "8"
+                          memory: "32Gi"
+                        requests:
+                          cpu: "8"
+                          memory: "2Gi"
+                      volumeMounts:
+                      - name: kafka-data
+                        mountPath: /var/lib/kafka/data
+                    volumes:
+                    - name: kafka-data
+                      persistentVolumeClaim:
+                        claimName: "channel-storage"
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.resources.cpu
+          toFieldPath: spec.forProvider.manifest.spec.template.spec.containers[0].resources.requests.cpu
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.resources.memory
+          toFieldPath: spec.forProvider.manifest.spec.template.spec.containers[0].resources.requests.memory
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.spec.template.spec.volumes[0].persistentVolumeClaim.claimName
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-storage"
+
+    # Deployment for Zookeeper (required by Kafka)
+    - name: zookeeper
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: "zookeeper"
+                namespace: "channel-cell"
+                labels:
+                  app: prism-platform
+                  component: zookeeper
+                  cellType: channel
+                  managed-by: crossplane
+              spec:
+                replicas: 1
+                selector:
+                  matchLabels:
+                    app: prism-platform
+                    component: zookeeper
+                template:
+                  metadata:
+                    labels:
+                      app: prism-platform
+                      component: zookeeper
+                  spec:
+                    containers:
+                    - name: zookeeper
+                      image: confluentinc/cp-zookeeper:latest
+                      ports:
+                      - containerPort: 2181
+                      env:
+                      - name: ZOOKEEPER_CLIENT_PORT
+                        value: "2181"
+                      - name: ZOOKEEPER_TICK_TIME
+                        value: "2000"
+                      resources:
+                        limits:
+                          cpu: "8"
+                          memory: "32Gi"
+                        requests:
+                          cpu: "500m"
+                          memory: "512Mi"
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Deployment for Redis pub/sub
+    - name: redis
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: "redis"
+                namespace: "channel-cell"
+                labels:
+                  app: prism-platform
+                  component: redis
+                  cellType: channel
+                  managed-by: crossplane
+              spec:
+                replicas: 1
+                selector:
+                  matchLabels:
+                    app: prism-platform
+                    component: redis
+                template:
+                  metadata:
+                    labels:
+                      app: prism-platform
+                      component: redis
+                  spec:
+                    containers:
+                    - name: redis
+                      image: redis:6.2-alpine
+                      ports:
+                      - containerPort: 6379
+                      resources:
+                        limits:
+                          cpu: "8"
+                          memory: "32Gi"
+                        requests:
+                          cpu: "500m"
+                          memory: "512Mi"
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Deployment for NATS messaging
+    - name: nats
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: "nats"
+                namespace: "channel-cell"
+                labels:
+                  app: prism-platform
+                  component: nats
+                  cellType: channel
+                  managed-by: crossplane
+              spec:
+                replicas: 1
+                selector:
+                  matchLabels:
+                    app: prism-platform
+                    component: nats
+                template:
+                  metadata:
+                    labels:
+                      app: prism-platform
+                      component: nats
+                  spec:
+                    containers:
+                    - name: nats
+                      image: nats:latest
+                      ports:
+                      - containerPort: 4222  # Client connections
+                      - containerPort: 8222  # HTTP monitoring
+                      resources:
+                        limits:
+                          cpu: "8"
+                          memory: "32Gi"
+                        requests:
+                          cpu: "500m"
+                          memory: "512Mi"
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Service for Kafka
+    - name: kafka-svc
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: "kafka"
+                namespace: "channel-cell"
+                labels:
+                  app: prism-platform
+                  component: kafka
+                  cellType: channel
+                  managed-by: crossplane
+              spec:
+                ports:
+                - port: 9092
+                  targetPort: 9092
+                  protocol: TCP
+                  name: kafka
+                selector:
+                  app: prism-platform
+                  component: kafka
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Service for Zookeeper
+    - name: zookeeper-svc
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: "zookeeper"
+                namespace: "channel-cell"
+                labels:
+                  app: prism-platform
+                  component: zookeeper
+                  cellType: channel
+                  managed-by: crossplane
+              spec:
+                ports:
+                - port: 2181
+                  targetPort: 2181
+                  protocol: TCP
+                  name: zookeeper
+                selector:
+                  app: prism-platform
+                  component: zookeeper
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Service for Redis
+    - name: redis-svc
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: "redis"
+                namespace: "channel-cell"
+                labels:
+                  app: prism-platform
+                  component: redis
+                  cellType: channel
+                  managed-by: crossplane
+              spec:
+                ports:
+                - port: 6379
+                  targetPort: 6379
+                  protocol: TCP
+                  name: redis
+                selector:
+                  app: prism-platform
+                  component: redis
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Service for NATS
+    - name: nats-svc
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: "nats"
+                namespace: "channel-cell"
+                labels:
+                  app: prism-platform
+                  component: nats
+                  cellType: channel
+                  managed-by: crossplane
+              spec:
+                ports:
+                - port: 4222
+                  targetPort: 4222
+                  protocol: TCP
+                  name: client
+                - port: 8222
+                  targetPort: 8222
+                  protocol: TCP
+                  name: monitoring
+                selector:
+                  app: prism-platform
+                  component: nats
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"

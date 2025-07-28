@@ -1,0 +1,21 @@
+apiVersion: prism-platform.example.com/v1alpha1
+kind: GlobalInfrastructure
+metadata:
+  name: prism-platform-global
+  namespace: global-infra
+spec:
+  dnsConfig:
+    domainName: prism-platform.example.com
+    hostedZoneId: placeholder
+  securityConfig:
+    enableWaf: true
+    enableShield: true
+  loadBalancingConfig:
+    enableGlobalAccelerator: true
+  backupConfig:
+    enableBackups: true
+    retentionDays: 30
+  compositionSelector:
+    matchLabels:
+      type: global
+      provider: aws

@@ -1,0 +1,16 @@
+apiVersion: prism.io/v1alpha1
+kind: Cell
+metadata:
+  name: example-legacy-cell
+  labels:
+    prism.io/cell-type: legacy
+    prism.io/example: "true"
+spec:
+  cellId: "legacy-migration-us-east"
+  cellType: "legacy"
+  provider: "aws"
+  region: "us-east-1"
+  resources:
+    cpu: "8000m"
+    memory: "32Gi"
+    storage: "500Gi" 

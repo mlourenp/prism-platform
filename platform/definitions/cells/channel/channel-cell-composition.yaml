@@ -1,0 +1,172 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: channel-cell-composition
+  labels:
+    provider: multi-cloud
+    cell-type: channel
+    prism.io/version: v1.2
+spec:
+  compositeTypeRef:
+    apiVersion: prism.io/v1alpha1
+    kind: Cell
+  writeConnectionSecretsToNamespace: crossplane-system
+  patchSets:
+  - name: common-labels
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: metadata.labels
+  resources:
+    # Create namespace for channel cell
+    - name: namespace
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: "channel-cell"
+                labels:
+                  prism.io/cell-type: channel
+                  prism.io/managed-by: crossplane
+                  prism.io/network-zone: dmz  # Public-facing zone
+                  istio-injection: enabled
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create ingress gateway for external access
+    - name: ingress-gateway
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: networking.istio.io/v1beta1
+              kind: Gateway
+              metadata:
+                name: channel-gateway
+                labels:
+                  prism.io/cell-type: channel
+              spec:
+                selector:
+                  istio: ingressgateway
+                servers:
+                - port:
+                    number: 80
+                    name: http
+                    protocol: HTTP
+                  hosts:
+                  - "*"
+                - port:
+                    number: 443
+                    name: https
+                    protocol: HTTPS
+                  tls:
+                    mode: SIMPLE
+                    credentialName: channel-tls-secret
+                  hosts:
+                  - "*"
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create network policy for channel cell
+    - name: network-policy
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: networking.k8s.io/v1
+              kind: NetworkPolicy
+              metadata:
+                name: channel-cell-policy
+                labels:
+                  prism.io/cell-type: channel
+              spec:
+                podSelector:
+                  matchLabels:
+                    prism.io/cell-type: channel
+                policyTypes:
+                - Ingress
+                - Egress
+                ingress:
+                - {}  # Allow all ingress (public-facing)
+                egress:
+                - to:
+                  - namespaceSelector:
+                      matchLabels:
+                        prism.io/cell-type: logic    # Route to logic cells
+                - to:
+                  - namespaceSelector:
+                      matchLabels:
+                        prism.io/cell-type: data     # Route to data cells
+                - to:
+                  - namespaceSelector:
+                      matchLabels:
+                        prism.io/cell-type: external # External API calls
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create ConfigMap for channel cell configuration
+    - name: cell-config
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: channel-cell-config
+                labels:
+                  prism.io/cell-type: channel
+              data:
+                cell-type: "channel"
+                workload-types: "api-gateway,load-balancer,proxy,router"
+                resource-profile: "network-intensive"
+                scaling-behavior: "horizontal"
+                network-zone: "dmz"
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace" 

@@ -1,0 +1,15 @@
+# Example Terraform Backend Configuration for Prism Platform
+# Copy this file to backend.conf and customize the values for your organization
+
+bucket         = "prism-community-terraform-state-bucket"
+key            = "prism/terraform.tfstate"
+region         = "us-east-1"
+dynamodb_table = "prism-community-terraform-locks"
+encrypt        = true
+profile        = "default"
+
+# Instructions:
+# 1. Replace "prism-community" with your organization name
+# 2. Update the AWS profile to match your configured AWS CLI profile
+# 3. Ensure the S3 bucket and DynamoDB table exist in your AWS account
+# 4. Initialize Terraform with: terraform init -backend-config=backend.conf 

@@ -1,0 +1,270 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: external-cell-composition
+  labels:
+    provider: multi-cloud
+    cell-type: external
+    prism.io/version: v1.2
+spec:
+  compositeTypeRef:
+    apiVersion: prism.io/v1alpha1
+    kind: Cell
+  writeConnectionSecretsToNamespace: crossplane-system
+  patchSets:
+  - name: common-labels
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: metadata.labels
+  - name: resource-sizing
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.resources.cpu
+      toFieldPath: spec.forProvider.manifest.spec.containers[0].resources.requests.cpu
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.resources.memory
+      toFieldPath: spec.forProvider.manifest.spec.containers[0].resources.requests.memory
+  resources:
+    # Create namespace for external cell
+    - name: namespace
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: "external-cell"
+                labels:
+                  prism.io/cell-type: external
+                  prism.io/managed-by: crossplane
+                  prism.io/network-zone: egress  # Outbound connections zone
+                  istio-injection: enabled
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create resource quota for external integrations
+    - name: resource-quota
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: ResourceQuota
+              metadata:
+                name: external-cell-quota
+                labels:
+                  prism.io/cell-type: external
+              spec:
+                hard:
+                  requests.cpu: "4"
+                  limits.cpu: "8"
+                  requests.memory: "16Gi"
+                  limits.memory: "32Gi"
+                  pods: "100"
+                  services: "20"
+                  secrets: "50"  # Many API keys and credentials
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create network policy for external access
+    - name: network-policy
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: networking.k8s.io/v1
+              kind: NetworkPolicy
+              metadata:
+                name: external-cell-network-policy
+                labels:
+                  prism.io/cell-type: external
+              spec:
+                podSelector:
+                  matchLabels:
+                    prism.io/cell-type: external
+                policyTypes:
+                - Ingress
+                - Egress
+                ingress:
+                - from:
+                  - namespaceSelector:
+                      matchLabels:
+                        prism.io/cell-type: logic  # Logic cells can use external services
+                  - namespaceSelector:
+                      matchLabels:
+                        prism.io/cell-type: channel  # Channel cells can proxy external calls
+                  ports:
+                  - protocol: TCP
+                    port: 8080  # HTTP API
+                  - protocol: TCP
+                    port: 8443  # HTTPS API
+                egress:
+                - to: []  # Allow all outbound (external services)
+                  ports:
+                  - protocol: TCP
+                    port: 443  # HTTPS
+                  - protocol: TCP
+                    port: 80   # HTTP
+                  - protocol: TCP
+                    port: 53   # DNS
+                  - protocol: UDP
+                    port: 53
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create external service connector service
+    - name: connector-service
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: external-connector
+                labels:
+                  prism.io/cell-type: external
+                  app: external-connector
+              spec:
+                selector:
+                  app: external-connector
+                ports:
+                - name: http
+                  port: 8080
+                  targetPort: 8080
+                - name: https
+                  port: 8443
+                  targetPort: 8443
+                - name: grpc
+                  port: 9090
+                  targetPort: 9090
+                type: ClusterIP
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create API gateway service for external API management
+    - name: api-gateway-service
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: api-gateway
+                labels:
+                  prism.io/cell-type: external
+                  app: api-gateway
+              spec:
+                selector:
+                  app: api-gateway
+                ports:
+                - name: gateway
+                  port: 8000
+                  targetPort: 8000
+                - name: admin
+                  port: 8001
+                  targetPort: 8001
+                type: ClusterIP
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Create configmap for external cell configuration
+    - name: external-config
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: external-cell-config
+                labels:
+                  prism.io/cell-type: external
+              data:
+                cell-type: "external"
+                workload-types: "api-gateway,webhook-handler,integration-connector,third-party-service"
+                resource-profile: "network-intensive"
+                scaling-behavior: "horizontal"
+                connection-pooling: "enabled"
+                rate-limiting: "enabled"
+                circuit-breaker: "enabled"
+                retry-policy: "exponential-backoff"
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellId
+          toFieldPath: spec.forProvider.manifest.data.cell-id 

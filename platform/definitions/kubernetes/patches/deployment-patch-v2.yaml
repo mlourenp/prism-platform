@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-model-server
+  namespace: recommendation-cell-claim-dc75w-namespace
+spec:
+  replicas: 1
+  template:
+    spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: node.kubernetes.io/instance-type
+                operator: In
+                values:
+                - m5.4xlarge
+                - m5.2xlarge
+          - weight: 50
+            preference:
+              matchExpressions:
+              - key: node.kubernetes.io/instance-type
+                operator: In
+                values:
+                - m5.large
+      containers:
+      - name: ai-model-server
+        resources:
+          requests:
+            cpu: "0.5"
+            memory: "2Gi"
+          limits:
+            cpu: "2"
+            memory: "4Gi"

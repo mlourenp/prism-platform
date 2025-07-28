@@ -1,0 +1,286 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-conf
+  namespace: prism-platform
+  labels:
+    app: opentelemetry
+    component: otel-collector-conf
+data:
+  otel-collector-config: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+      jaeger:
+        protocols:
+          thrift_http:
+            endpoint: 0.0.0.0:14268
+          grpc:
+            endpoint: 0.0.0.0:14250
+
+      prometheus:
+        config:
+          scrape_configs:
+            - job_name: 'otel-collector'
+              scrape_interval: 10s
+              static_configs:
+                - targets: ['0.0.0.0:8888']
+
+      zipkin:
+        endpoint: 0.0.0.0:9411
+
+    processors:
+      batch:
+        send_batch_size: 10000
+        timeout: 10s
+
+      memory_limiter:
+        check_interval: 5s
+        limit_percentage: 80
+        spike_limit_percentage: 25
+
+      attributes:
+        actions:
+          - key: environment
+            value: "${DEPLOYMENT_ENVIRONMENT}"
+            action: upsert
+          - key: cluster
+            value: "${CLUSTER_NAME}"
+            action: upsert
+
+      resource:
+        attributes:
+          - key: service.namespace
+            value: "prism-platform"
+            action: upsert
+
+      probabilistic_sampler:
+        hash_seed: 22
+        sampling_percentage: 100
+
+      tail_sampling:
+        decision_wait: 10s
+        num_traces: 100
+        expected_new_traces_per_sec: 10
+        policies:
+          - name: error-policy
+            type: status_code
+            status_code:
+              status_codes: [ERROR, UNSET]
+          - name: high-latency-policy
+            type: latency
+            latency:
+              threshold_ms: 500
+
+    exporters:
+      logging:
+        loglevel: info
+
+      otlp:
+        endpoint: tempo:4317
+        tls:
+          insecure: true
+
+      prometheusremotewrite:
+        endpoint: "http://prometheus-server:9090/api/v1/write"
+        tls:
+          insecure: true
+
+      elasticsearch:
+        endpoints: ["http://elasticsearch-client:9200"]
+        index: traces
+
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+
+      pprof:
+        endpoint: 0.0.0.0:1777
+
+      zpages:
+        endpoint: 0.0.0.0:55679
+
+    service:
+      extensions: [health_check, pprof, zpages]
+      pipelines:
+        traces:
+          receivers: [otlp, jaeger, zipkin]
+          processors: [memory_limiter, batch, attributes, resource, probabilistic_sampler, tail_sampling]
+          exporters: [otlp, elasticsearch, logging]
+
+        metrics:
+          receivers: [otlp, prometheus]
+          processors: [memory_limiter, batch, attributes, resource]
+          exporters: [prometheusremotewrite, logging]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: prism-platform
+  labels:
+    app: opentelemetry
+    component: otel-collector
+spec:
+  ports:
+  - name: otlp-grpc
+    port: 4317
+    protocol: TCP
+    targetPort: 4317
+  - name: otlp-http
+    port: 4318
+    protocol: TCP
+    targetPort: 4318
+  - name: jaeger-thrift
+    port: 14268
+    protocol: TCP
+    targetPort: 14268
+  - name: jaeger-grpc
+    port: 14250
+    protocol: TCP
+    targetPort: 14250
+  - name: zipkin
+    port: 9411
+    protocol: TCP
+    targetPort: 9411
+  - name: metrics
+    port: 8888
+    protocol: TCP
+    targetPort: 8888
+  - name: healthcheck
+    port: 13133
+    protocol: TCP
+    targetPort: 13133
+  selector:
+    app: opentelemetry
+    component: otel-collector
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+  namespace: prism-platform
+  labels:
+    app: opentelemetry
+    component: otel-collector
+spec:
+  selector:
+    matchLabels:
+      app: opentelemetry
+      component: otel-collector
+  minReadySeconds: 5
+  progressDeadlineSeconds: 120
+  replicas: 2
+  template:
+    metadata:
+      labels:
+        app: opentelemetry
+        component: otel-collector
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8888"
+    spec:
+      serviceAccountName: otel-collector
+      containers:
+      - name: otel-collector
+        image: otel/opentelemetry-collector-contrib:0.85.0
+        imagePullPolicy: IfNotPresent
+        command:
+          - "/otelcol-contrib"
+          - "--config=/conf/otel-collector-config.yaml"
+        env:
+          - name: DEPLOYMENT_ENVIRONMENT
+            valueFrom:
+              configMapKeyRef:
+                name: prism-platform-config
+                key: deployment_environment
+                optional: true
+          - name: CLUSTER_NAME
+            valueFrom:
+              configMapKeyRef:
+                name: prism-platform-config
+                key: cluster_name
+                optional: true
+        ports:
+          - containerPort: 4317 # OTLP gRPC
+          - containerPort: 4318 # OTLP HTTP
+          - containerPort: 14250 # Jaeger gRPC
+          - containerPort: 14268 # Jaeger HTTP
+          - containerPort: 9411 # Zipkin
+          - containerPort: 8888 # Metrics
+          - containerPort: 13133 # Health check
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 13133
+          initialDelaySeconds: 10
+          periodSeconds: 20
+          timeoutSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 13133
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        volumeMounts:
+          - name: otel-collector-config-vol
+            mountPath: /conf
+        resources:
+          limits:
+            cpu: 1000m
+            memory: 2Gi
+          requests:
+            cpu: 200m
+            memory: 400Mi
+      volumes:
+        - name: otel-collector-config-vol
+          configMap:
+            name: otel-collector-conf
+            items:
+              - key: otel-collector-config
+                path: otel-collector-config.yaml
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: role
+                operator: In
+                values:
+                - observability
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: otel-collector
+  namespace: prism-platform
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: otel-collector
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "namespaces", "nodes", "nodes/proxy"]
+    verbs: ["get", "list", "watch"]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: otel-collector
+subjects:
+  - kind: ServiceAccount
+    name: otel-collector
+    namespace: prism-platform
+roleRef:
+  kind: ClusterRole
+  name: otel-collector
+  apiGroup: rbac.authorization.k8s.io

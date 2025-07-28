@@ -1,0 +1,249 @@
+---
+# Cell Subnet Network Policies
+# These policies enforce the network architecture where External and Channel cells
+# are on public subnets, and all other cells are on private subnets
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-external-ingress
+  namespace: prism-platform
+spec:
+  podSelector:
+    matchLabels:
+      cell.prism-platform.io/type: external
+  ingress:
+  - {}  # Allow all ingress to external cell
+  policyTypes:
+  - Ingress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-channel-ingress
+  namespace: prism-platform
+spec:
+  podSelector:
+    matchLabels:
+      cell.prism-platform.io/type: channel
+  ingress:
+  - {}  # Allow all ingress to channel cell
+  policyTypes:
+  - Ingress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: external-cell-egress
+  namespace: prism-platform
+spec:
+  podSelector:
+    matchLabels:
+      cell.prism-platform.io/type: external
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/part-of: prism-platform
+    ports:
+    - port: 8080
+      protocol: TCP
+    - port: 443
+      protocol: TCP
+  policyTypes:
+  - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: channel-cell-egress
+  namespace: prism-platform
+spec:
+  podSelector:
+    matchLabels:
+      cell.prism-platform.io/type: channel
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/part-of: prism-platform
+    ports:
+    - port: 8080
+      protocol: TCP
+    - port: 443
+      protocol: TCP
+  policyTypes:
+  - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: private-cells-policy
+  namespace: prism-platform
+spec:
+  podSelector:
+    matchExpressions:
+    - key: cell.prism-platform.io/type
+      operator: In
+      values: [data, logic, security, observability, integration, simulation, recommendation]
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/part-of: prism-platform
+    ports:
+    - port: 8080
+      protocol: TCP
+    - port: 443
+      protocol: TCP
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/part-of: prism-platform
+    ports:
+    - port: 8080
+      protocol: TCP
+    - port: 443
+      protocol: TCP
+  policyTypes:
+  - Ingress
+  - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: integration-cell-special-policy
+  namespace: prism-platform
+spec:
+  podSelector:
+    matchLabels:
+      cell.prism-platform.io/type: integration
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          cell.prism-platform.io/type: channel
+    ports:
+    - port: 8080
+      protocol: TCP
+    - port: 443
+      protocol: TCP
+  - from:
+    - podSelector:
+        matchExpressions:
+        - key: cell.prism-platform.io/type
+          operator: In
+          values: [data, logic, security, observability, simulation, recommendation]
+    ports:
+    - port: 8080
+      protocol: TCP
+    - port: 443
+      protocol: TCP
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          cell.prism-platform.io/type: channel
+    ports:
+    - port: 8080
+      protocol: TCP
+    - port: 443
+      protocol: TCP
+  - to:
+    - podSelector:
+        matchExpressions:
+        - key: cell.prism-platform.io/type
+          operator: In
+          values: [data, logic, security, observability, simulation, recommendation]
+    ports:
+    - port: 8080
+      protocol: TCP
+    - port: 443
+      protocol: TCP
+  policyTypes:
+  - Ingress
+  - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: simulation-cell-benchmarking-policy
+  namespace: prism-platform
+spec:
+  podSelector:
+    matchLabels:
+      cell.prism-platform.io/type: simulation
+  ingress:
+  - from:
+    - podSelector:
+        matchExpressions:
+        - key: cell.prism-platform.io/type
+          operator: In
+          values: [data, logic, security, observability, channel, integration, recommendation]
+    ports:
+    - port: 8080
+      protocol: TCP
+    - port: 9090
+      protocol: TCP
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/part-of: prism-platform
+    ports:
+    - port: 8080
+      protocol: TCP
+    - port: 443
+      protocol: TCP
+    - port: 9090
+      protocol: TCP
+  policyTypes:
+  - Ingress
+  - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: recommendation-cell-data-access-policy
+  namespace: prism-platform
+spec:
+  podSelector:
+    matchLabels:
+      cell.prism-platform.io/type: recommendation
+  ingress:
+  - from:
+    - podSelector:
+        matchExpressions:
+        - key: cell.prism-platform.io/type
+          operator: In
+          values: [observability, channel, external]
+    ports:
+    - port: 8080
+      protocol: TCP
+    - port: 443
+      protocol: TCP
+  egress:
+  - to:
+    - podSelector:
+        matchExpressions:
+        - key: cell.prism-platform.io/type
+          operator: In
+          values: [data, observability, simulation]
+    ports:
+    - port: 8080
+      protocol: TCP
+    - port: 9090
+      protocol: TCP
+  - to:
+    - podSelector:
+        matchLabels:
+          cell.prism-platform.io/type: channel
+    ports:
+    - port: 8080
+      protocol: TCP
+    - port: 443
+      protocol: TCP
+  policyTypes:
+  - Ingress
+  - Egress

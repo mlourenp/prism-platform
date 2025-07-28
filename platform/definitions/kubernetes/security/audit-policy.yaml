@@ -1,0 +1,213 @@
+apiVersion: audit.k8s.io/v1
+kind: Policy
+metadata:
+  name: prism-platform-audit-policy
+rules:
+  # Log all requests at the Metadata level.
+  - level: Metadata
+    omitStages:
+      - "RequestReceived"
+
+  # Log pod changes at RequestResponse level
+  - level: RequestResponse
+    resources:
+    - group: ""
+      resources: ["pods"]
+    verbs: ["create", "update", "patch", "delete"]
+
+  # Log configmaps and secrets at the RequestResponse level
+  - level: RequestResponse
+    resources:
+    - group: "" # core API group
+      resources: ["secrets", "configmaps"]
+    verbs: ["create", "update", "patch", "delete"]
+
+  # Log persistent volume changes at RequestResponse level
+  - level: RequestResponse
+    resources:
+    - group: "" # core API group
+      resources: ["persistentvolumes", "persistentvolumeclaims"]
+    verbs: ["create", "update", "patch", "delete"]
+
+  # Log RBAC changes at RequestResponse level
+  - level: RequestResponse
+    resources:
+    - group: "rbac.authorization.k8s.io"
+      resources: ["roles", "rolebindings", "clusterroles", "clusterrolebindings"]
+    verbs: ["create", "update", "patch", "delete"]
+
+  # Log authentication and authorization at Request level
+  - level: Request
+    users: ["system:unauthenticated", "system:anonymous"]
+    omitStages:
+      - "RequestReceived"
+
+  # Log service account operations at RequestResponse level
+  - level: RequestResponse
+    resources:
+    - group: "" # core API group
+      resources: ["serviceaccounts"]
+    verbs: ["create", "update", "patch", "delete"]
+
+  # Log namespace operations at RequestResponse level
+  - level: RequestResponse
+    resources:
+    - group: "" # core API group
+      resources: ["namespaces"]
+    verbs: ["create", "update", "patch", "delete"]
+
+  # Log networking changes at RequestResponse level
+  - level: RequestResponse
+    resources:
+    - group: "networking.k8s.io"
+      resources: ["networkpolicies"]
+    verbs: ["create", "update", "patch", "delete"]
+
+  # Log node changes at RequestResponse level
+  - level: RequestResponse
+    resources:
+    - group: "" # core API group
+      resources: ["nodes"]
+    verbs: ["create", "update", "patch", "delete"]
+
+  # Log high-volume resources at the Metadata level
+  - level: Metadata
+    resources:
+    - group: "" # core API group
+      resources: ["endpoints", "services", "events"]
+    omitStages:
+      - "RequestReceived"
+
+  # Log deployment and statefulset operations at RequestResponse level
+  - level: RequestResponse
+    resources:
+    - group: "apps"
+      resources: ["deployments", "statefulsets", "daemonsets"]
+    verbs: ["create", "update", "patch", "delete"]
+
+  # Log CRD operations at RequestResponse level
+  - level: RequestResponse
+    resources:
+    - group: "apiextensions.k8s.io"
+      resources: ["customresourcedefinitions"]
+    verbs: ["create", "update", "patch", "delete"]
+
+  # Log prism-platform specific CRDs at RequestResponse level
+  - level: RequestResponse
+    resources:
+    - group: "prism.io"
+      resources: ["cells", "channels", "drifts"]
+    verbs: ["create", "update", "patch", "delete"]
+
+  # Default catch-all rule - log at Metadata level for other resources
+  - level: Metadata
+    omitStages:
+      - "RequestReceived"
+
+---
+# Example kube-apiserver configuration to enable auditing
+# This would be applied in the kube-apiserver manifest
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: audit-config
+  namespace: kube-system
+data:
+  audit-policy.yaml: |
+    # Include the entire audit policy above here
+
+  # This is an example output configuration - actual implementation will vary by cloud provider
+  audit-log-config: |
+    apiVersion: apiserver.config.k8s.io/v1
+    kind: AdvancedAuditing
+    runtime:
+      asyncBufferSize: 8192
+    auditFilename: "/var/log/kubernetes/apiserver/audit.log"
+    maximumFileSizeMegabytes: 100
+    maximumRetainedFiles: 10
+    logFormat: json
+    truncateEnabled: true
+    truncateMaxBatchSize: 10485760
+    truncateMaxEventSize: 102400
+
+---
+# Sample deployment of audit log collection using Fluentd
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: fluentd-audit
+  namespace: kube-system
+  labels:
+    k8s-app: fluentd-audit
+spec:
+  selector:
+    matchLabels:
+      k8s-app: fluentd-audit
+  template:
+    metadata:
+      labels:
+        k8s-app: fluentd-audit
+    spec:
+      serviceAccountName: fluentd
+      tolerations:
+      - key: node-role.kubernetes.io/master
+        effect: NoSchedule
+      containers:
+      - name: fluentd
+        image: fluent/fluentd-kubernetes-daemonset:v1.14-debian-cloudwatch-1
+        env:
+          - name: AWS_REGION
+            value: "us-west-2"
+          - name: LOG_GROUP_NAME
+            value: "/prism-platform/kubernetes/audit-logs"
+        resources:
+          limits:
+            memory: 500Mi
+          requests:
+            cpu: 100m
+            memory: 200Mi
+        volumeMounts:
+        - name: varlog
+          mountPath: /var/log
+        - name: varlibdockercontainers
+          mountPath: /var/lib/docker/containers
+          readOnly: true
+        - name: kubernetes-audit
+          mountPath: /var/log/kubernetes/apiserver
+          readOnly: true
+      volumes:
+      - name: varlog
+        hostPath:
+          path: /var/log
+      - name: varlibdockercontainers
+        hostPath:
+          path: /var/lib/docker/containers
+      - name: kubernetes-audit
+        hostPath:
+          path: /var/log/kubernetes/apiserver
+
+---
+# Setup instructions for audit logging:
+#
+# 1. For EKS, enable audit logs using eksctl:
+#    eksctl update cluster --name=prism-platform-cluster --region=us-west-2 \
+#      --enable-cluster-audit-logging
+#
+# 2. For self-managed Kubernetes:
+#    a. Copy this audit policy to master nodes at /etc/kubernetes/audit-policy.yaml
+#    b. Update kube-apiserver manifest with the following flags:
+#       --audit-policy-file=/etc/kubernetes/audit-policy.yaml
+#       --audit-log-path=/var/log/kubernetes/apiserver/audit.log
+#       --audit-log-maxage=7
+#       --audit-log-maxbackup=10
+#       --audit-log-maxsize=100
+#
+# 3. Deploy a log collection agent (like fluentd above) to forward logs to
+#    your security information and event management (SIEM) system or
+#    cloud logging service (CloudWatch, Stackdriver, etc.)
+#
+# 4. Set up alerts for critical security events:
+#    - Privilege escalation attempts
+#    - Secret or configmap changes
+#    - RBAC modifications
+#    - Unauthorized access attempts

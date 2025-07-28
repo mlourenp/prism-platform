@@ -1,0 +1,340 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: external-cells.aws.prism-platform.example.com
+  labels:
+    provider: aws
+    cellType: external
+spec:
+  compositeTypeRef:
+    apiVersion: prism-platform.example.com/v1alpha1
+    kind: Cell
+  writeConnectionSecretsToNamespace: crossplane-system
+  resources:
+    # Namespace for External Cell
+    - name: external-namespace
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: external-cell
+                labels:
+                  cell-type: external
+                  prism-platform: "true"
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-ns"
+
+    # Network Configuration
+    - name: network-config
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: external-network-config
+                namespace: external-cell
+              data:
+                subnetType: public
+
+    # Web UI Deployment (Frontend)
+    - name: web-ui
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: web-ui
+                namespace: external-cell
+                labels:
+                  app: prism-platform
+                  component: web-ui
+                  cell-type: external
+              spec:
+                replicas: 3
+                selector:
+                  matchLabels:
+                    app: prism-platform
+                    component: web-ui
+                template:
+                  metadata:
+                    labels:
+                      app: prism-platform
+                      component: web-ui
+                      cell-type: external
+                    annotations:
+                      instrumentation.opentelemetry.io/inject-nodejs: "true"
+                      instrumentation.opentelemetry.io/resource-attributes: "service.name=web-ui,service.namespace=external-cell"
+                  spec:
+                    containers:
+                      - name: web-ui
+                        image: prism-platform/web-ui:latest
+                        imagePullPolicy: Always
+                        ports:
+                          - containerPort: 80
+                            name: http
+                        env:
+                          - name: API_URL
+                            value: "http://api-gateway:8080"
+                          - name: ENVIRONMENT
+                            valueFrom:
+                              configMapKeyRef:
+                                name: deployment-config
+                                key: ENVIRONMENT
+                        resources:
+                          requests:
+                            cpu: "200m"
+                            memory: "256Mi"
+                          limits:
+                            cpu: "500m"
+                            memory: "512Mi"
+                        livenessProbe:
+                          httpGet:
+                            path: /health
+                            port: 80
+                          initialDelaySeconds: 30
+                          periodSeconds: 10
+                        readinessProbe:
+                          httpGet:
+                            path: /health
+                            port: 80
+                          initialDelaySeconds: 5
+                          periodSeconds: 5
+
+    # Web UI Service
+    - name: web-ui-service
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: web-ui
+                namespace: external-cell
+                labels:
+                  app: prism-platform
+                  component: web-ui
+                  cell-type: external
+              spec:
+                ports:
+                  - port: 80
+                    targetPort: 80
+                    protocol: TCP
+                    name: http
+                selector:
+                  app: prism-platform
+                  component: web-ui
+                type: ClusterIP
+
+    # API Gateway Deployment
+    - name: api-gateway
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: api-gateway
+                namespace: external-cell
+                labels:
+                  app: prism-platform
+                  component: api-gateway
+                  cell-type: external
+              spec:
+                replicas: 3
+                selector:
+                  matchLabels:
+                    app: prism-platform
+                    component: api-gateway
+                template:
+                  metadata:
+                    labels:
+                      app: prism-platform
+                      component: api-gateway
+                      cell-type: external
+                    annotations:
+                      instrumentation.opentelemetry.io/inject-nodejs: "true"
+                      instrumentation.opentelemetry.io/resource-attributes: "service.name=api-gateway,service.namespace=external-cell"
+                  spec:
+                    containers:
+                      - name: api-gateway
+                        image: prism-platform/api-gateway:latest
+                        imagePullPolicy: Always
+                        ports:
+                          - containerPort: 8080
+                            name: http
+                        env:
+                          - name: API_SERVICE_URL
+                            value: "http://api-service.prism-platform-cell-1:8000"
+                          - name: ENVIRONMENT
+                            valueFrom:
+                              configMapKeyRef:
+                                name: deployment-config
+                                key: ENVIRONMENT
+                        resources:
+                          requests:
+                            cpu: "200m"
+                            memory: "256Mi"
+                          limits:
+                            cpu: "500m"
+                            memory: "512Mi"
+                        livenessProbe:
+                          httpGet:
+                            path: /health
+                            port: 8080
+                          initialDelaySeconds: 30
+                          periodSeconds: 10
+                        readinessProbe:
+                          httpGet:
+                            path: /health
+                            port: 8080
+                          initialDelaySeconds: 5
+                          periodSeconds: 5
+
+    # API Gateway Service
+    - name: api-gateway-service
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: api-gateway
+                namespace: external-cell
+                labels:
+                  app: prism-platform
+                  component: api-gateway
+                  cell-type: external
+              spec:
+                ports:
+                  - port: 8080
+                    targetPort: 8080
+                    protocol: TCP
+                    name: http
+                selector:
+                  app: prism-platform
+                  component: api-gateway
+                type: ClusterIP
+
+    # Management UI Deployment
+    - name: management-ui
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: management-ui
+                namespace: external-cell
+                labels:
+                  app: prism-platform
+                  component: management-ui
+                  cell-type: external
+              spec:
+                replicas: 2
+                selector:
+                  matchLabels:
+                    app: prism-platform
+                    component: management-ui
+                template:
+                  metadata:
+                    labels:
+                      app: prism-platform
+                      component: management-ui
+                      cell-type: external
+                    annotations:
+                      instrumentation.opentelemetry.io/inject-nodejs: "true"
+                      instrumentation.opentelemetry.io/resource-attributes: "service.name=management-ui,service.namespace=external-cell"
+                  spec:
+                    containers:
+                      - name: management-ui
+                        image: prism-platform/management-ui:latest
+                        imagePullPolicy: Always
+                        ports:
+                          - containerPort: 3000
+                            name: http
+                        env:
+                          - name: API_GATEWAY_URL
+                            value: "http://api-gateway:8080"
+                          - name: ENVIRONMENT
+                            valueFrom:
+                              configMapKeyRef:
+                                name: deployment-config
+                                key: ENVIRONMENT
+                        resources:
+                          requests:
+                            cpu: "200m"
+                            memory: "256Mi"
+                          limits:
+                            cpu: "500m"
+                            memory: "512Mi"
+                        livenessProbe:
+                          httpGet:
+                            path: /health
+                            port: 3000
+                          initialDelaySeconds: 30
+                          periodSeconds: 10
+                        readinessProbe:
+                          httpGet:
+                            path: /health
+                            port: 3000
+                          initialDelaySeconds: 5
+                          periodSeconds: 5
+
+    # Management UI Service
+    - name: management-ui-service
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: management-ui
+                namespace: external-cell
+                labels:
+                  app: prism-platform
+                  component: management-ui
+                  cell-type: external
+              spec:
+                ports:
+                  - port: 3000
+                    targetPort: 3000
+                    protocol: TCP
+                    name: http
+                selector:
+                  app: prism-platform
+                  component: management-ui
+                type: ClusterIP

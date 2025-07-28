@@ -1,0 +1,479 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: regionalinfrastructures.saas.example.com
+spec:
+  group: saas.example.com
+  names:
+    kind: RegionalInfrastructure
+    plural: regionalinfrastructures
+  claimNames:
+    kind: RegionalInfrastructureClaim
+    plural: regionalinfrastructureclaims
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                region:
+                  type: string
+                  description: "AWS region where infrastructure will be provisioned"
+                vpc:
+                  type: object
+                  properties:
+                    cidrBlock:
+                      type: string
+                      description: "CIDR block for the VPC"
+                    privateSubnets:
+                      type: array
+                      items:
+                        type: string
+                      description: "CIDR blocks for private subnets"
+                    publicSubnets:
+                      type: array
+                      items:
+                        type: string
+                      description: "CIDR blocks for public subnets"
+                  required: [cidrBlock, privateSubnets, publicSubnets]
+                eks:
+                  type: object
+                  properties:
+                    version:
+                      type: string
+                      description: "Kubernetes version for EKS cluster"
+                    nodeGroups:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                          instanceType:
+                            type: string
+                          minSize:
+                            type: integer
+                          maxSize:
+                            type: integer
+                          desiredCapacity:
+                            type: integer
+                        required: [name, instanceType, minSize, maxSize]
+                    managedNodeGroups:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                          instanceType:
+                            type: string
+                          minSize:
+                            type: integer
+                          maxSize:
+                            type: integer
+                          desiredCapacity:
+                            type: integer
+                          labels:
+                            type: object
+                            additionalProperties:
+                              type: string
+                        required: [name, instanceType, minSize, maxSize]
+                    fargateProfiles:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                          selectors:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                namespace:
+                                  type: string
+                                labels:
+                                  type: object
+                                  additionalProperties:
+                                    type: string
+                              required: [namespace]
+                        required: [name, selectors]
+                  required: [version]
+                serviceMesh:
+                  type: object
+                  properties:
+                    implementation:
+                      type: string
+                      enum: [istio, linkerd, consul]
+                      default: istio
+                    version:
+                      type: string
+                    mtls:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        mode:
+                          type: string
+                          enum: [STRICT, PERMISSIVE]
+                          default: STRICT
+                      required: [enabled]
+                    tracing:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        implementation:
+                          type: string
+                          enum: [jaeger, zipkin, datadog]
+                          default: jaeger
+                      required: [enabled]
+                    autoInjection:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        namespaces:
+                          type: array
+                          items:
+                            type: string
+                      required: [enabled]
+                    meshGateway:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        type:
+                          type: string
+                          enum: [loadbalancer, nodeport, clusterip]
+                          default: loadbalancer
+                      required: [enabled]
+                    crossRegionGateway:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                      required: [enabled]
+                  required: [implementation]
+                observability:
+                  type: object
+                  properties:
+                    metrics:
+                      type: object
+                      properties:
+                        implementation:
+                          type: string
+                          enum: [prometheus, datadog, cloudwatch]
+                          default: prometheus
+                        retention:
+                          type: string
+                          default: "7d"
+                        storageSize:
+                          type: string
+                          default: "50Gi"
+                        scrapeInterval:
+                          type: string
+                          default: "30s"
+                      required: [implementation]
+                    logging:
+                      type: object
+                      properties:
+                        implementation:
+                          type: string
+                          enum: [fluent-bit, fluentd, datadog, cloudwatch]
+                          default: fluent-bit
+                        outputs:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              type:
+                                type: string
+                                enum: [elasticsearch, s3, cloudwatch]
+                              endpoint:
+                                type: string
+                            required: [type]
+                      required: [implementation]
+                    dashboards:
+                      type: object
+                      properties:
+                        implementation:
+                          type: string
+                          enum: [grafana, datadog, cloudwatch]
+                          default: grafana
+                        storageSize:
+                          type: string
+                          default: "10Gi"
+                        defaultDashboards:
+                          type: array
+                          items:
+                            type: string
+                      required: [implementation]
+                    alerts:
+                      type: object
+                      properties:
+                        implementation:
+                          type: string
+                          enum: [alertmanager, datadog, cloudwatch]
+                          default: alertmanager
+                        receivers:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                              email:
+                                type: string
+                              slack:
+                                type: object
+                                properties:
+                                  channel:
+                                    type: string
+                            required: [name]
+                      required: [implementation]
+                  required: []
+                security:
+                  type: object
+                  properties:
+                    networkPolicies:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        defaultDenyIngress:
+                          type: boolean
+                          default: true
+                      required: [enabled]
+                    podSecurityPolicies:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                      required: [enabled]
+                    secretsManagement:
+                      type: object
+                      properties:
+                        implementation:
+                          type: string
+                          enum: [aws-secrets-manager, vault, kubernetes]
+                          default: aws-secrets-manager
+                      required: [implementation]
+                    certificateManagement:
+                      type: object
+                      properties:
+                        implementation:
+                          type: string
+                          enum: [cert-manager]
+                          default: cert-manager
+                        clusterIssuer:
+                          type: string
+                          default: letsencrypt-prod
+                      required: [implementation]
+                    iam:
+                      type: object
+                      properties:
+                        serviceAccounts:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                              namespace:
+                                type: string
+                              policyArns:
+                                type: array
+                                items:
+                                  type: string
+                            required: [name, namespace]
+                      required: []
+                    scanners:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: true
+                        imageScan:
+                          type: boolean
+                          default: true
+                        vulnerabilityScan:
+                          type: boolean
+                          default: true
+                      required: [enabled]
+                  required: []
+                dataServices:
+                  type: object
+                  properties:
+                    redis:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: false
+                        version:
+                          type: string
+                        mode:
+                          type: string
+                          enum: [standalone, cluster, replication]
+                          default: cluster
+                        nodes:
+                          type: integer
+                          default: 3
+                        storageSize:
+                          type: string
+                          default: "10Gi"
+                      required: [enabled]
+                    elasticsearch:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: false
+                        version:
+                          type: string
+                        nodes:
+                          type: integer
+                          default: 3
+                        storageSize:
+                          type: string
+                          default: "50Gi"
+                        curator:
+                          type: object
+                          properties:
+                            enabled:
+                              type: boolean
+                              default: true
+                            retention:
+                              type: string
+                              default: "30d"
+                          required: [enabled]
+                      required: [enabled]
+                    rds:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                          default: false
+                        engine:
+                          type: string
+                          enum: [mysql, postgres, mariadb]
+                        version:
+                          type: string
+                        instanceType:
+                          type: string
+                        storageSize:
+                          type: string
+                        multiAZ:
+                          type: boolean
+                          default: true
+                      required: [enabled, engine]
+                  required: []
+                backup:
+                  type: object
+                  properties:
+                    enabled:
+                      type: boolean
+                      default: true
+                    implementation:
+                      type: string
+                      enum: [velero]
+                      default: velero
+                    schedule:
+                      type: string
+                      default: "0 1 * * *"
+                    retention:
+                      type: string
+                      default: "30d"
+                    includeNamespaces:
+                      type: array
+                      items:
+                        type: string
+                    excludeNamespaces:
+                      type: array
+                      items:
+                        type: string
+                    volumeSnapshot:
+                      type: boolean
+                      default: true
+                    s3Bucket:
+                      type: string
+                  required: [enabled]
+                globalReferences:
+                  type: object
+                  properties:
+                    infrastructure:
+                      type: string
+                      description: "Reference to global infrastructure"
+                    dnsZone:
+                      type: string
+                      description: "DNS zone for the region"
+                  required: [infrastructure]
+              required: [region, vpc, eks]
+            status:
+              type: object
+              properties:
+                clusterName:
+                  type: string
+                  description: "Name of the EKS cluster"
+                vpcId:
+                  type: string
+                  description: "ID of the VPC"
+                subnetIds:
+                  type: object
+                  properties:
+                    private:
+                      type: array
+                      items:
+                        type: string
+                    public:
+                      type: array
+                      items:
+                        type: string
+                observabilityEndpoints:
+                  type: object
+                  properties:
+                    prometheus:
+                      type: string
+                    grafana:
+                      type: string
+                    alertmanager:
+                      type: string
+                dataServiceEndpoints:
+                  type: object
+                  properties:
+                    redis:
+                      type: string
+                    elasticsearch:
+                      type: string
+                    rds:
+                      type: string
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                      reason:
+                        type: string
+                      message:
+                        type: string
+  conversion:
+    strategy: None

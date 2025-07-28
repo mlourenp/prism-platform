@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: az-local-routing-config
+  namespace: prism-platform
+data:
+  enable_az_local_routing: "true"
+  cross_az_cost: "100"
+  local_region_cost: "10"
+  global_region_cost: "1000"

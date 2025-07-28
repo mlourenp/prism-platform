@@ -1,0 +1,21 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: az-aware-routing
+  namespace: prism-platform
+spec:
+  host: "*.prism-platform.svc.cluster.local"
+  trafficPolicy:
+    loadBalancer:
+      localityLbSetting:
+        enabled: true
+        distribute:
+        - from: "us-west-2/*"
+          to:
+            "us-west-2/zone-a/*": 80
+            "us-west-2/zone-b/*": 15
+            "us-west-2/zone-c/*": 5
+    outlierDetection:
+      consecutive5xxErrors: 10
+      interval: 30s
+      baseEjectionTime: 30s

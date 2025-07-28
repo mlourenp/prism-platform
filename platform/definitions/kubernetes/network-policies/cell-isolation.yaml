@@ -1,0 +1,332 @@
+---
+# Default deny all ingress and egress traffic
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: prism-platform
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+---
+# Allow DNS resolution
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: prism-platform
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+---
+# External Cell - Allow inbound public traffic
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: external-cell-policy
+  namespace: prism-platform
+spec:
+  podSelector:
+    matchLabels:
+      cell-type: external
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from: []  # Allow from any source
+    ports:
+    - protocol: TCP
+      port: 80
+    - protocol: TCP
+      port: 443
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          cell-type: channel
+    ports:
+    - protocol: TCP
+      port: 8080
+  - to:
+    - podSelector:
+        matchLabels:
+          cell-type: logic
+    ports:
+    - protocol: TCP
+      port: 8080
+---
+# Channel Cell - Communication bridge
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: channel-cell-policy
+  namespace: prism-platform
+spec:
+  podSelector:
+    matchLabels:
+      cell-type: channel
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          cell-type: external
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          cell-type: logic
+    ports:
+    - protocol: TCP
+      port: 8080
+  - to:
+    - podSelector:
+        matchLabels:
+          cell-type: integration
+    ports:
+    - protocol: TCP
+      port: 8080
+---
+# Logic Cell - Core business logic
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: logic-cell-policy
+  namespace: prism-platform
+spec:
+  podSelector:
+    matchLabels:
+      cell-type: logic
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          cell-type: external
+    ports:
+    - protocol: TCP
+      port: 8080
+  - from:
+    - podSelector:
+        matchLabels:
+          cell-type: channel
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          cell-type: data
+    ports:
+    - protocol: TCP
+      port: 5432  # PostgreSQL
+    - protocol: TCP
+      port: 6379  # Redis
+  - to:
+    - podSelector:
+        matchLabels:
+          cell-type: security
+    ports:
+    - protocol: TCP
+      port: 8080
+  - to:
+    - podSelector:
+        matchLabels:
+          cell-type: integration
+    ports:
+    - protocol: TCP
+      port: 8080
+---
+# Data Cell - Database services
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: data-cell-policy
+  namespace: prism-platform
+spec:
+  podSelector:
+    matchLabels:
+      cell-type: data
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          cell-type: logic
+    ports:
+    - protocol: TCP
+      port: 5432  # PostgreSQL
+    - protocol: TCP
+      port: 6379  # Redis
+  - from:
+    - podSelector:
+        matchLabels:
+          cell-type: recommendation
+    ports:
+    - protocol: TCP
+      port: 5432  # PostgreSQL
+  egress: []  # No outbound connections needed
+---
+# Security Cell - Authentication/Authorization
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: security-cell-policy
+  namespace: prism-platform
+spec:
+  podSelector:
+    matchLabels:
+      cell-type: security
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          cell-type: logic
+    ports:
+    - protocol: TCP
+      port: 8080
+  - from:
+    - podSelector:
+        matchLabels:
+          cell-type: external
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          cell-type: data
+    ports:
+    - protocol: TCP
+      port: 5432  # PostgreSQL
+---
+# Observability Cell - Monitoring
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: observability-cell-policy
+  namespace: prism-platform
+spec:
+  podSelector:
+    matchLabels:
+      cell-type: observability
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from: []  # Allow metrics scraping from all cells
+    ports:
+    - protocol: TCP
+      port: 9090  # Prometheus
+    - protocol: TCP
+      port: 3000  # Grafana
+  egress:
+  - to: []  # Allow scraping metrics from all cells
+---
+# Recommendation Cell - AI/ML recommendations
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: recommendation-cell-policy
+  namespace: prism-platform
+spec:
+  podSelector:
+    matchLabels:
+      cell-type: recommendation
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          cell-type: logic
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          cell-type: data
+    ports:
+    - protocol: TCP
+      port: 5432  # PostgreSQL
+---
+# Integration Cell - External system integration
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: integration-cell-policy
+  namespace: prism-platform
+spec:
+  podSelector:
+    matchLabels:
+      cell-type: integration
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          cell-type: channel
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  - to: []  # Allow outbound to external services
+    ports:
+    - protocol: TCP
+      port: 443  # HTTPS
+---
+# Simulation Cell - Benchmarking and testing
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: simulation-cell-policy
+  namespace: prism-platform
+spec:
+  podSelector:
+    matchLabels:
+      cell-type: simulation
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          cell-type: logic
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  - to: []  # Allow outbound to all services for testing

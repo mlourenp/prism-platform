@@ -1,0 +1,142 @@
+# Pixie configuration for Prism Platform
+# Provides deep observability and debugging capabilities
+
+# Pixie operator configuration
+operator:
+  enabled: true
+  namespace: pl-operator
+  
+  image:
+    registry: gcr.io/pixie-oss/pixie-dev-public
+    tag: latest
+  
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Pixie deployment configuration
+cluster:
+  name: "prism-platform"
+  
+# PEM (Pixie Edge Module) configuration
+pem:
+  enabled: true
+  replicas: 1
+  
+  image:
+    registry: gcr.io/pixie-oss/pixie-dev-public
+    tag: latest
+  
+  resources:
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+
+# PEM proxy configuration  
+pemProxy:
+  enabled: true
+  
+  image:
+    registry: gcr.io/pixie-oss/pixie-dev-public
+    tag: latest
+  
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+# Cloud connector configuration
+cloudConnector:
+  enabled: true
+  
+  image:
+    registry: gcr.io/pixie-oss/pixie-dev-public
+    tag: latest
+  
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+# Vizier configuration (data collection)
+vizier:
+  enabled: true
+  
+  # Data collection settings
+  dataAccess: "Restricted"
+  
+  # Resource limits for data collection
+  resources:
+    requests:
+      cpu: 2000m
+      memory: 4Gi
+    limits:
+      cpu: 4000m
+      memory: 8Gi
+
+# NATS configuration for internal messaging
+nats:
+  enabled: true
+  
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Metadata service configuration
+metadata:
+  enabled: true
+  
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Auto-update configuration
+autoUpdate:
+  enabled: false  # Disabled for stable deployments
+
+# Security and compliance
+security:
+  # Enable TLS for all communications
+  tls:
+    enabled: true
+  
+  # Data retention policy (7 days for Prism)
+  dataRetentionDays: 7
+
+# Pod security context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10100
+  fsGroup: 10100
+
+# Node selection for Pixie components
+nodeSelector:
+  kubernetes.io/os: linux
+
+# Tolerations for observability workloads
+tolerations:
+- key: "prism.io/observability"
+  operator: "Equal"
+  value: "true"
+  effect: "NoSchedule" 

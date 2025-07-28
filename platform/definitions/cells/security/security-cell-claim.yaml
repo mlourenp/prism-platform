@@ -1,0 +1,20 @@
+apiVersion: saas.example.com/v1alpha1
+kind: CellClaim
+metadata:
+  name: security-cell
+  namespace: prism-system
+  labels:
+    prism.io/cell-type: security
+spec:
+  cellType: security
+  region: us-east-1
+  cloudProvider: aws
+  priority: 10
+  resources:
+    cpu: "1"
+    memory: "4Gi"
+    storage: "50Gi"
+  compositionSelector:
+    matchLabels:
+      provider: aws
+      cellType: security

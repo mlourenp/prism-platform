@@ -1,0 +1,59 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: generic-workload-service
+  namespace: prism-platform
+  labels:
+    app: prism-platform
+    component: generic-workload
+    prism.io/cell-type: "logic"
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  selector:
+    app: prism-platform
+    component: generic-workload
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: generic-workload-config
+  namespace: prism-platform
+  labels:
+    app: prism-platform
+    component: generic-workload
+    prism.io/cell-type: "logic"
+data:
+  app.properties: |
+    # Generic workload configuration
+    prism.platform.version=v1.2
+    prism.cell.type=logic
+    prism.workload.type=computational
+    
+    # Performance settings
+    worker.threads=4
+    batch.size=100
+    processing.timeout=30s
+    
+    # Monitoring
+    metrics.enabled=true
+    metrics.port=8080
+    metrics.path=/metrics
+    
+    # Health checks
+    health.check.interval=10s
+    readiness.check.timeout=5s
+  
+  logging.properties: |
+    # Logging configuration
+    log.level=INFO
+    log.format=json
+    log.output=stdout
+    
+    # Audit logging
+    audit.enabled=true
+    audit.level=INFO 

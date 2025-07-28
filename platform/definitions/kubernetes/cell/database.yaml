@@ -1,0 +1,163 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: database
+  namespace: prism-platform-cell-1
+  labels:
+    app: prism-platform
+    component: database
+spec:
+  ports:
+  - port: 5432
+    targetPort: 5432
+    protocol: TCP
+    name: postgres
+  selector:
+    app: prism-platform
+    component: database
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: database
+  namespace: prism-platform-cell-1
+  labels:
+    app: prism-platform
+    component: database
+spec:
+  serviceName: database
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prism-platform
+      component: database
+  template:
+    metadata:
+      labels:
+        app: prism-platform
+        component: database
+    spec:
+      containers:
+      - name: postgres
+        image: timescale/timescaledb:latest-pg15
+        ports:
+        - containerPort: 5432
+          name: postgres
+        env:
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: database-credentials
+              key: username
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: database-credentials
+              key: password
+        - name: POSTGRES_DB
+          value: "prism_platform"
+        resources:
+          limits:
+            cpu: "2"
+            memory: "4Gi"
+          requests:
+            cpu: "1"
+            memory: "2Gi"
+        volumeMounts:
+        - name: postgres-data
+          mountPath: /var/lib/postgresql/data
+        startupProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - postgres
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 6
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - postgres
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 6
+        readinessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - postgres
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 2
+      securityContext:
+        fsGroup: 999
+  volumeClaimTemplates:
+  - metadata:
+      name: postgres-data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: "standard"
+      resources:
+        requests:
+          storage: 50Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+  namespace: prism-platform-cell-1
+  labels:
+    app: prism-platform
+    component: database
+data:
+  init-db.sql: |
+    CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;
+
+    -- Create hypertables for time-series data
+    SELECT create_hypertable('model_checks', 'timestamp');
+
+    -- Create indexes for common queries
+    CREATE INDEX idx_model_checks_status ON model_checks (status);
+    CREATE INDEX idx_feature_metrics_drift ON feature_metrics (drift_score DESC);
+    CREATE INDEX idx_alerts_severity ON alerts (severity, acknowledged);
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: database-migrations
+  namespace: prism-platform-cell-1
+  labels:
+    app: prism-platform
+    component: database-migrations
+spec:
+  backoffLimit: 5
+  template:
+    metadata:
+      labels:
+        app: prism-platform
+        component: database-migrations
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: migrations
+        image: ${DOCKER_REGISTRY}/prism-platform/migrations:${IMAGE_TAG}
+        imagePullPolicy: Always
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: database-credentials
+              key: url
+        - name: ENVIRONMENT
+          value: "production"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000

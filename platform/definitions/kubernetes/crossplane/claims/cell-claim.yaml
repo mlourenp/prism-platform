@@ -1,0 +1,14 @@
+apiVersion: prism-platform.example.com/v1alpha1
+kind: CellClaim
+metadata:
+  name: core-services-cell
+  namespace: prism-platform
+spec:
+  cellType: logic
+  region: us-west-2
+  cloudProvider: aws
+  priority: 8
+  resources:
+    cpu: "4"
+    memory: "16Gi"
+    storage: "100Gi"

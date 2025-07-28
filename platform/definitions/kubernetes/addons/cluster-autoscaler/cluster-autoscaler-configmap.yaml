@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-autoscaler-priority-expander
+  namespace: kube-system
+data:
+  priorities: |-
+    10:
+      - .*4xlarge.*
+    20:
+      - .*2xlarge.*
+    30:
+      - .*large.*
+    50:
+      - .*

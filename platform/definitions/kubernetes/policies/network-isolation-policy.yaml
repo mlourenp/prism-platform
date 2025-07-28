@@ -1,0 +1,19 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: az-local-first-policy
+  namespace: prism-platform
+spec:
+  podSelector: {}
+  ingress:
+  - from:
+    - podSelector: {}
+      namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: prism-platform
+  egress:
+  - to:
+    - podSelector: {}
+      namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: prism-platform

@@ -1,0 +1,253 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: cells.saas.example.com
+  labels:
+    provider: aws
+    environment: production
+spec:
+  compositeTypeRef:
+    apiVersion: saas.example.com/v1alpha1
+    kind: Cell
+  writeConnectionSecretsToNamespace: crossplane-system
+  patchSets:
+    - name: common-labels
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.labels
+          toFieldPath: metadata.labels
+    - name: common-parameters
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.region
+          toFieldPath: spec.forProvider.region
+  resources:
+    - name: eks-node-group
+      base:
+        apiVersion: eks.aws.crossplane.io/v1beta1
+        kind: NodeGroup
+        spec:
+          forProvider:
+            clusterNameSelector:
+              matchLabels:
+                region: ""
+            nodeRoleSelector:
+              matchLabels:
+                role: eks-node
+            scalingConfig:
+              minSize: 2
+              maxSize: 5
+              desiredSize: 2
+            instanceTypes:
+              - t3.medium
+            diskSize: 20
+            labels:
+              cell-type: ""
+            taints: []
+            amiType: AL2_x86_64
+            subnets: []
+            tags:
+              Name: ""
+          providerConfigRef:
+            name: aws-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: PatchSet
+          patchSetName: common-parameters
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.region
+          toFieldPath: spec.forProvider.clusterNameSelector.matchLabels.region
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellType
+          toFieldPath: spec.forProvider.labels.cell-type
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.instanceType
+          toFieldPath: spec.forProvider.instanceTypes[0]
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.minSize
+          toFieldPath: spec.forProvider.scalingConfig.minSize
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.maxSize
+          toFieldPath: spec.forProvider.scalingConfig.maxSize
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.desiredSize
+          toFieldPath: spec.forProvider.scalingConfig.desiredSize
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.regionalInfrastructureRef
+          toFieldPath: spec.forProvider.subnets
+          transforms:
+            - type: map
+              map:
+                fromFieldPath: status.subnetIds[2]
+                toFieldPath: "[0]"
+            - type: map
+              map:
+                fromFieldPath: status.subnetIds[3]
+                toFieldPath: "[1]"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellType
+          toFieldPath: spec.forProvider.tags.Name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-cell"
+
+    - name: namespace
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: ""
+                labels:
+                  cell-type: ""
+                  istio-injection: enabled
+                annotations:
+                  prism-platform.example.com/managed-by: crossplane
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellNamespace
+          toFieldPath: spec.forProvider.manifest.metadata.name
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellType
+          toFieldPath: spec.forProvider.manifest.metadata.labels.cell-type
+
+    - name: network-policy
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: networking.k8s.io/v1
+              kind: NetworkPolicy
+              metadata:
+                name: cell-isolation
+                namespace: ""
+              spec:
+                podSelector: {}
+                policyTypes:
+                - Ingress
+                - Egress
+                ingress:
+                - from:
+                  - namespaceSelector:
+                      matchLabels:
+                        cell-type: ""
+                  - namespaceSelector:
+                      matchLabels:
+                        istio-injection: enabled
+                egress:
+                - to:
+                  - namespaceSelector:
+                      matchLabels:
+                        cell-type: gateway
+                  - namespaceSelector:
+                      matchLabels:
+                        istio-injection: enabled
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellNamespace
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellType
+          toFieldPath: spec.forProvider.manifest.spec.ingress[0].from[0].namespaceSelector.matchLabels.cell-type
+
+    - name: resource-quota
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: ResourceQuota
+              metadata:
+                name: cell-quota
+                namespace: ""
+              spec:
+                hard:
+                  cpu: "8"
+                  memory: 16Gi
+                  pods: "20"
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellNamespace
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.resourceQuota.cpu
+          toFieldPath: spec.forProvider.manifest.spec.hard.cpu
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.resourceQuota.memory
+          toFieldPath: spec.forProvider.manifest.spec.hard.memory
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.resourceQuota.pods
+          toFieldPath: spec.forProvider.manifest.spec.hard.pods
+
+    - name: service-account
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: ServiceAccount
+              metadata:
+                name: cell-service-account
+                namespace: ""
+                annotations:
+                  eks.amazonaws.com/role-arn: ""
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellNamespace
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.serviceAccountRoleArn
+          toFieldPath: spec.forProvider.manifest.metadata.annotations.eks\.amazonaws\.com/role-arn
+
+    - name: cell-monitoring
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: monitoring.coreos.com/v1
+              kind: ServiceMonitor
+              metadata:
+                name: cell-monitor
+                namespace: monitoring
+              spec:
+                selector:
+                  matchLabels:
+                    cell-type: ""
+                namespaceSelector:
+                  matchNames:
+                    - ""
+                endpoints:
+                  - port: metrics
+                    interval: 15s
+                    path: /metrics
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellType
+          toFieldPath: spec.forProvider.manifest.spec.selector.matchLabels.cell-type
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellNamespace
+          toFieldPath: spec.forProvider.manifest.spec.namespaceSelector.matchNames[0]

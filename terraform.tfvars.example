@@ -1,0 +1,62 @@
+# Prism Platform v1.2 - Example Configuration
+
+# Basic Configuration
+environment = "dev"                    # Environment: dev, staging, prod
+cluster_name = "prism-platform"       # Your cluster name
+cloud_provider = "aws"                # aws, gcp, azure, oracle, ibm, baremetal
+region = "us-east-1"                  # Primary deployment region
+
+# AWS Configuration (if using AWS)
+aws_profile = "default"               # AWS CLI profile name
+aws_account_id = "123456789012"       # Your AWS account ID
+
+# Backend Configuration (customize for your setup)
+# Note: Update these values for your organization
+state_bucket_name = "prism-community-terraform-state-bucket"
+dynamodb_table_name = "prism-community-terraform-locks"
+
+# Core Platform Features
+enable_crossplane = true                # Multi-cloud orchestration
+enable_service_mesh = true              # Istio + Merbridge eBPF acceleration  
+enable_observability_stack = true       # Prometheus, Grafana, Alertmanager
+enable_ebpf_observability = true        # Cilium, Tetragon, Falco
+enable_pixie = false                     # Deep application observability (optional)
+enable_datadog_alternative = false      # Use native stack instead of external APM
+enable_telemetry_agent = false          # Optional usage telemetry (disabled by default)
+enable_cost_estimation = true           # Infracost integration
+enable_cell_deployment = true           # All 8 cell types
+
+# Observability Configuration
+observability_retention_days = 7       # Retention period for dev environments
+observability_storage_size = "50Gi"    # Storage allocation
+
+# Resource Configuration
+node_instance_type = "t3.medium"       # Instance type for worker nodes
+min_node_count = 1                     # Minimum nodes
+max_node_count = 10                    # Maximum nodes for autoscaling
+
+# Security Configuration
+enable_pod_security_standards = true   # Kubernetes Pod Security Standards
+enable_network_policies = true         # Network segmentation
+enable_secrets_encryption = true       # Encrypt secrets at rest
+
+# Optional: Datadog Integration (if enabled)
+# datadog_api_key = "your-datadog-api-key"
+# datadog_app_key = "your-datadog-app-key"
+# datadog_site = "datadoghq.com"
+
+# Telemetry Configuration (optional - for infrastructure insights)
+# enable_telemetry_agent = true           # Enable telemetry collection
+# telemetry_privacy_level = "standard"    # minimal, standard, detailed
+# telemetry_reporting_interval = 60       # Minutes between reports
+# telemetry_endpoint = ""                 # Custom endpoint (uses default if empty)
+# telemetry_api_key = ""                  # Enterprise API key (optional)
+
+# Common tags for resource organization
+common_tags = {
+  Platform = "prism"
+  ManagedBy = "terraform"
+  Repository = "prism-platform"
+  Environment = "dev"
+  Organization = "prism-community"              # Update with your organization name
+} 

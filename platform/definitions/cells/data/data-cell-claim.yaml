@@ -1,0 +1,25 @@
+apiVersion: saas.example.com/v1alpha1
+kind: CellClaim
+metadata:
+  name: data-cell
+  namespace: prism-system
+  labels:
+    prism.io/cell-type: data
+spec:
+  infrastructureRef:
+    name: "regional-infrastructure-us-east-1"
+  type: primary
+  trafficAllocation: 40
+  failover:
+    enabled: true
+    isFailoverTarget: false
+    priority: 2
+  resources:
+    cpu:
+      reserved: 60
+      burstable: 85
+    memory:
+      reserved: 70
+      burstable: 90
+    storage:
+      reserved: 50

@@ -1,0 +1,350 @@
+---
+# Kafka deployment with optimized resources
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka
+  namespace: channel-cell-8kkgj-namespace
+spec:
+  template:
+    spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: node.kubernetes.io/instance-type
+                operator: In
+                values:
+                - m5.4xlarge
+                - m5.2xlarge
+          - weight: 50
+            preference:
+              matchExpressions:
+              - key: workload-type
+                operator: In
+                values:
+                - channel
+      containers:
+      - name: kafka
+        resources:
+          requests:
+            cpu: "2"
+            memory: "4Gi"
+          limits:
+            cpu: "4"
+            memory: "8Gi"
+---
+# Zookeeper deployment with optimized resources
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zookeeper
+  namespace: channel-cell-8kkgj-namespace
+spec:
+  template:
+    spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: node.kubernetes.io/instance-type
+                operator: In
+                values:
+                - m5.2xlarge
+                - m5.large
+          - weight: 50
+            preference:
+              matchExpressions:
+              - key: workload-type
+                operator: In
+                values:
+                - channel
+      containers:
+      - name: zookeeper
+        resources:
+          requests:
+            cpu: "1"
+            memory: "2Gi"
+          limits:
+            cpu: "2"
+            memory: "4Gi"
+---
+# Redis deployment with optimized resources
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: channel-cell-8kkgj-namespace
+spec:
+  template:
+    spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: node.kubernetes.io/instance-type
+                operator: In
+                values:
+                - m5.large
+      containers:
+      - name: redis
+        resources:
+          requests:
+            cpu: "0.5"
+            memory: "1Gi"
+          limits:
+            cpu: "1"
+            memory: "2Gi"
+---
+# NATS deployment with optimized resources
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nats
+  namespace: channel-cell-8kkgj-namespace
+spec:
+  template:
+    spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: node.kubernetes.io/instance-type
+                operator: In
+                values:
+                - m5.large
+      containers:
+      - name: nats
+        resources:
+          requests:
+            cpu: "0.5"
+            memory: "1Gi"
+          limits:
+            cpu: "1"
+            memory: "2Gi"
+---
+# Data DB service with optimized resources
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: data-db-service
+  namespace: data-cell-w65ql-namespace
+spec:
+  template:
+    spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: node.kubernetes.io/instance-type
+                operator: In
+                values:
+                - m5.2xlarge
+                - m5.4xlarge
+          - weight: 50
+            preference:
+              matchExpressions:
+              - key: workload-type
+                operator: In
+                values:
+                - data
+      containers:
+      - name: data-db-service
+        resources:
+          requests:
+            cpu: "2"
+            memory: "4Gi"
+          limits:
+            cpu: "4"
+            memory: "8Gi"
+---
+# API Gateway with optimized resources
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: integration-cell-sbwc7-namespace
+spec:
+  template:
+    spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: node.kubernetes.io/instance-type
+                operator: In
+                values:
+                - m5.large
+                - m5.2xlarge
+      containers:
+      - name: api-gateway
+        resources:
+          requests:
+            cpu: "1"
+            memory: "2Gi"
+          limits:
+            cpu: "2"
+            memory: "4Gi"
+---
+# Kafka Connector with optimized resources
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-connector
+  namespace: integration-cell-sbwc7-namespace
+spec:
+  template:
+    spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: node.kubernetes.io/instance-type
+                operator: In
+                values:
+                - m5.large
+      containers:
+      - name: kafka-connector
+        resources:
+          requests:
+            cpu: "0.5"
+            memory: "1Gi"
+          limits:
+            cpu: "1"
+            memory: "2Gi"
+---
+# Prometheus with optimized resources
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: observability-cell-qcrrb-namespace
+spec:
+  template:
+    spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: workload-type
+                operator: In
+                values:
+                - observability
+              - key: cgroupVersion
+                operator: In
+                values:
+                - v2
+          requiredDuringSchedulingIgnoredDuringExecution: null
+      containers:
+      - name: prometheus
+        resources:
+          requests:
+            cpu: "2"
+            memory: "4Gi"
+          limits:
+            cpu: "4"
+            memory: "8Gi"
+---
+# Grafana with optimized resources
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: observability-cell-qcrrb-namespace
+spec:
+  template:
+    spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: node.kubernetes.io/instance-type
+                operator: In
+                values:
+                - m5.large
+                - m5.2xlarge
+      containers:
+      - name: grafana
+        resources:
+          requests:
+            cpu: "0.5"
+            memory: "1Gi"
+          limits:
+            cpu: "1"
+            memory: "2Gi"
+---
+# Auth Service with optimized resources
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+  namespace: security-cell-vmcd2-namespace
+spec:
+  template:
+    spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: node.kubernetes.io/instance-type
+                operator: In
+                values:
+                - m5.large
+      containers:
+      - name: auth-service
+        resources:
+          requests:
+            cpu: "0.5"
+            memory: "1Gi"
+          limits:
+            cpu: "1"
+            memory: "2Gi"
+---
+# Secrets Manager with optimized resources
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: secrets-manager
+  namespace: security-cell-vmcd2-namespace
+spec:
+  template:
+    spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: node.kubernetes.io/instance-type
+                operator: In
+                values:
+                - m5.large
+      containers:
+      - name: secrets-manager
+        resources:
+          requests:
+            cpu: "0.5"
+            memory: "1Gi"
+          limits:
+            cpu: "1"
+            memory: "2Gi"

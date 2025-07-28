@@ -1,0 +1,224 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prism-platform-security-sa
+  namespace: prism-platform
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::${AWS_ACCOUNT_ID}:role/CorrospondDriftSecretsAccessRole"
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prism-platform-app-sa
+  namespace: prism-platform
+
+---
+# Role for general application permissions
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: app-access
+  namespace: prism-platform
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "configmaps", "secrets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["pods/log"]
+  verbs: ["get", "list"]
+- apiGroups: ["batch"]
+  resources: ["jobs", "cronjobs"]
+  verbs: ["get", "list", "watch"]
+
+---
+# Binding for application service account
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: app-access-binding
+  namespace: prism-platform
+subjects:
+- kind: ServiceAccount
+  name: prism-platform-app-sa
+  namespace: prism-platform
+roleRef:
+  kind: Role
+  name: app-access
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# Role for security-specific access
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: security-access
+  namespace: prism-platform
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list", "watch", "create", "update", "patch"]
+- apiGroups: [""]
+  resources: ["pods", "services", "configmaps"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["networkpolicies"]
+  verbs: ["get", "list", "watch"]
+
+---
+# Binding for security service account
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: security-access-binding
+  namespace: prism-platform
+subjects:
+- kind: ServiceAccount
+  name: prism-platform-security-sa
+  namespace: prism-platform
+roleRef:
+  kind: Role
+  name: security-access
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# Role for cell-specific permissions
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cell-specific-access
+  namespace: prism-platform
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "configmaps", "secrets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "statefulsets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["get", "list", "watch", "create", "delete"]
+
+---
+# Different bindings for different cell types (example with data cell)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: data-cell-access-binding
+  namespace: prism-platform
+subjects:
+- kind: ServiceAccount
+  name: data-cell-sa
+  namespace: prism-platform
+roleRef:
+  kind: Role
+  name: cell-specific-access
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# Admin level permissions for operators and maintenance
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prism-platform-admin
+rules:
+- apiGroups: ["*"]
+  resources: ["*"]
+  verbs: ["*"]
+
+---
+# Limited binding of admin permissions to specific admin service account
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prism-platform-admin-binding
+subjects:
+- kind: ServiceAccount
+  name: prism-platform-admin-sa
+  namespace: prism-platform
+roleRef:
+  kind: ClusterRole
+  name: prism-platform-admin
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# Restricted access for read-only operations (debugging/monitoring)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prism-platform-readonly
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "configmaps", "endpoints", "namespaces"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "daemonsets", "statefulsets", "replicasets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["batch"]
+  resources: ["jobs", "cronjobs"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["networkpolicies", "ingresses"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["metrics.k8s.io"]
+  resources: ["pods", "nodes"]
+  verbs: ["get", "list", "watch"]
+
+---
+# Binding for readonly operations
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prism-platform-readonly-binding
+subjects:
+- kind: ServiceAccount
+  name: prism-platform-readonly-sa
+  namespace: prism-platform
+roleRef:
+  kind: ClusterRole
+  name: prism-platform-readonly
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# Cell-specific service accounts for each cell type
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: data-cell-sa
+  namespace: prism-platform
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: logic-cell-sa
+  namespace: prism-platform
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: observability-cell-sa
+  namespace: prism-platform
+
+---
+# Network policy to restrict secret access by pod label
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: restrict-secrets-access
+  namespace: prism-platform
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: security
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          secrets-access: "allowed"
+    ports:
+    - protocol: TCP
+      port: 8080

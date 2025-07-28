@@ -1,0 +1,409 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: integration-cells.aws.prism-platform.example.com
+  labels:
+    provider: aws
+    cellType: integration
+spec:
+  compositeTypeRef:
+    apiVersion: prism-platform.example.com/v1alpha1
+    kind: Cell
+  writeConnectionSecretsToNamespace: crossplane-system
+  patchSets:
+    - name: common-labels
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.labels
+  resources:
+    # Kubernetes namespace resource for the integration cell
+    - name: namespace
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: "integration-cell"
+                labels:
+                  app: prism-platform
+                  cellType: integration
+                  managed-by: crossplane
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.cellType
+          toFieldPath: spec.forProvider.manifest.metadata.labels.cellType
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.labels.cell-instance
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # ConfigMap for integration connectors configuration
+    - name: integration-config
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: "integration-config"
+                namespace: "integration-cell"
+                labels:
+                  app: prism-platform
+                  component: integration-config
+                  cellType: integration
+                  managed-by: crossplane
+              data:
+                connectors.json: |
+                  {
+                    "connectors": [
+                      {
+                        "name": "kafka",
+                        "type": "streaming",
+                        "config": {
+                          "bootstrap.servers": "kafka-service:9092",
+                          "group.id": "prism-platform-group",
+                          "auto.offset.reset": "earliest"
+                        }
+                      },
+                      {
+                        "name": "rest-api",
+                        "type": "api",
+                        "config": {
+                          "baseUrl": "https://api.example.com",
+                          "timeout": 30000,
+                          "retries": 3
+                        }
+                      },
+                      {
+                        "name": "s3",
+                        "type": "storage",
+                        "config": {
+                          "bucket": "prism-platform-integration",
+                          "region": "us-west-2"
+                        }
+                      }
+                    ]
+                  }
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Deployment for API Gateway service
+    - name: api-gateway
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: "api-gateway"
+                namespace: "integration-cell"
+                labels:
+                  app: prism-platform
+                  component: api-gateway
+                  cellType: integration
+                  managed-by: crossplane
+              spec:
+                replicas: 2
+                selector:
+                  matchLabels:
+                    app: prism-platform
+                    component: api-gateway
+                template:
+                  metadata:
+                    labels:
+                      app: prism-platform
+                      component: api-gateway
+                  spec:
+                    containers:
+                    - name: api-gateway
+                      image: nginx:alpine  # Placeholder, replace with actual API gateway image
+                      ports:
+                      - containerPort: 8080
+                      env:
+                      - name: CONFIG_FILE
+                        value: "/etc/integration/connectors.json"
+                      resources:
+                        limits:
+                          cpu: "8"
+                          memory: "32Gi"
+                        requests:
+                          cpu: "500m"
+                          memory: "512Mi"
+                      volumeMounts:
+                      - name: integration-config
+                        mountPath: /etc/integration/
+                    volumes:
+                    - name: integration-config
+                      configMap:
+                        name: integration-config
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.resources.cpu
+          toFieldPath: spec.forProvider.manifest.spec.template.spec.containers[0].resources.requests.cpu
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.resources.memory
+          toFieldPath: spec.forProvider.manifest.spec.template.spec.containers[0].resources.requests.memory
+
+    # Deployment for Kafka connector service
+    - name: kafka-connector
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: "kafka-connector"
+                namespace: "integration-cell"
+                labels:
+                  app: prism-platform
+                  component: kafka-connector
+                  cellType: integration
+                  managed-by: crossplane
+              spec:
+                replicas: 1
+                selector:
+                  matchLabels:
+                    app: prism-platform
+                    component: kafka-connector
+                template:
+                  metadata:
+                    labels:
+                      app: prism-platform
+                      component: kafka-connector
+                  spec:
+                    containers:
+                    - name: kafka-connector
+                      image: confluentinc/cp-kafka:latest
+                      ports:
+                      - containerPort: 8083
+                      env:
+                      - name: CONNECT_BOOTSTRAP_SERVERS
+                        value: "kafka-service:9092"
+                      - name: CONNECT_GROUP_ID
+                        value: "prism-platform-connect"
+                      - name: CONNECT_CONFIG_STORAGE_TOPIC
+                        value: "prism-platform-connect-configs"
+                      - name: CONNECT_OFFSET_STORAGE_TOPIC
+                        value: "prism-platform-connect-offsets"
+                      - name: CONNECT_STATUS_STORAGE_TOPIC
+                        value: "prism-platform-connect-status"
+                      resources:
+                        limits:
+                          cpu: "8"
+                          memory: "32Gi"
+                        requests:
+                          cpu: "4"
+                          memory: "8Gi"
+                      volumeMounts:
+                      - name: integration-config
+                        mountPath: /etc/integration/
+                    volumes:
+                    - name: integration-config
+                      configMap:
+                        name: integration-config
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.resources.cpu
+          toFieldPath: spec.forProvider.manifest.spec.template.spec.containers[0].resources.requests.cpu
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.resources.memory
+          toFieldPath: spec.forProvider.manifest.spec.template.spec.containers[0].resources.requests.memory
+
+    # Deployment for S3 connector service
+    - name: s3-connector
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: "s3-connector"
+                namespace: "integration-cell"
+                labels:
+                  app: prism-platform
+                  component: s3-connector
+                  cellType: integration
+                  managed-by: crossplane
+              spec:
+                replicas: 1
+                selector:
+                  matchLabels:
+                    app: prism-platform
+                    component: s3-connector
+                template:
+                  metadata:
+                    labels:
+                      app: prism-platform
+                      component: s3-connector
+                  spec:
+                    containers:
+                    - name: s3-connector
+                      image: amazon/aws-cli:latest
+                      command: ["sh", "-c", "echo 'S3 connector running' && sleep infinity"]
+                      env:
+                      - name: AWS_REGION
+                        value: "us-west-2"
+                      resources:
+                        limits:
+                          cpu: "500m"
+                          memory: "512Mi"
+                        requests:
+                          cpu: "200m"
+                          memory: "256Mi"
+                      volumeMounts:
+                      - name: integration-config
+                        mountPath: /etc/integration/
+                    volumes:
+                    - name: integration-config
+                      configMap:
+                        name: integration-config
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Service for API Gateway
+    - name: api-gateway-svc
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: "api-gateway"
+                namespace: "integration-cell"
+                labels:
+                  app: prism-platform
+                  component: api-gateway
+                  cellType: integration
+                  managed-by: crossplane
+              spec:
+                ports:
+                - port: 8080
+                  targetPort: 8080
+                  protocol: TCP
+                  name: http
+                selector:
+                  app: prism-platform
+                  component: api-gateway
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
+
+    # Service for Kafka connector
+    - name: kafka-connector-svc
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: "kafka-connector"
+                namespace: "integration-cell"
+                labels:
+                  app: prism-platform
+                  component: kafka-connector
+                  cellType: integration
+                  managed-by: crossplane
+              spec:
+                ports:
+                - port: 8083
+                  targetPort: 8083
+                  protocol: TCP
+                  name: connect-api
+                selector:
+                  app: prism-platform
+                  component: kafka-connector
+          providerConfigRef:
+            name: kubernetes-provider
+      patches:
+        - type: PatchSet
+          patchSetName: common-labels
+        - type: FromCompositeFieldPath
+          fromFieldPath: metadata.name
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-namespace"
