@@ -1,0 +1,95 @@
+apiVersion: platform.prism.io/v1alpha1
+kind: DomainCellClaim
+metadata:
+  name: ml-platform-dev
+  namespace: ml-workloads
+  labels:
+    domain: ml
+    environment: dev
+    tenant: data-science-team
+spec:
+  # Domain Configuration
+  domain: ml
+  environment: dev
+  tenant: data-science-team
+  region: us-west-2
+  
+  # Network Configuration
+  cidrBlock: "10.200.0.0/16"
+  
+  # Kubernetes Configuration
+  kubernetesVersion: "1.28"
+  
+  # Node Group Configuration - Optimized for ML Workloads
+  nodeGroups:
+    channel:
+      instanceTypes: ["t3a.medium"]
+      minSize: 1
+      maxSize: 3
+      desiredSize: 1
+      capacityType: "SPOT"
+      
+    data:
+      instanceTypes: ["r6g.2xlarge", "r6g.4xlarge"]
+      minSize: 1
+      maxSize: 5
+      desiredSize: 2
+      capacityType: "SPOT"
+      
+    logic:
+      instanceTypes: ["g4dn.xlarge", "g4dn.2xlarge"]
+      minSize: 0
+      maxSize: 10
+      desiredSize: 1
+      capacityType: "SPOT"
+      
+    observability:
+      instanceTypes: ["m6g.large"]
+      minSize: 1
+      maxSize: 2
+      desiredSize: 1
+      capacityType: "ON_DEMAND"
+      
+    security:
+      instanceTypes: ["t3a.small"]
+      minSize: 1
+      maxSize: 1
+      desiredSize: 1
+      capacityType: "ON_DEMAND"
+      
+  # Capacity Reservation - Disabled for dev
+  capacityReservation:
+    enabled: false
+    
+  # Performance Requirements
+  performance:
+    latencyRequirement: "500ms"
+    throughputRequirement: "1000rps"
+    placementStrategy: "cluster"
+    
+  # Compliance Requirements - Minimal for dev
+  compliance: []
+    
+  # Cost Optimization - Aggressive for dev
+  cost:
+    reservedInstances: false
+    spotInstances: true
+    gravitonOptimized: true
+    savingsPlans: false
+    
+  # Service Deployment Configuration
+  services:
+    channel:
+      - "jupyter"
+      - "api-gateway"
+    data:
+      - "feature-store"
+      - "model-registry"
+    logic:
+      - "training"
+      - "inference"
+    observability:
+      - "experiment-tracking"
+      - "model-monitoring"
+    security:
+      - "notebook-auth"

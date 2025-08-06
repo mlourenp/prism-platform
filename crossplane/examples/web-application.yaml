@@ -1,0 +1,100 @@
+apiVersion: platform.prism.io/v1alpha1
+kind: DomainCellClaim
+metadata:
+  name: web-application-prod
+  namespace: web-apps
+  labels:
+    domain: web
+    environment: prod
+    tenant: example-company
+spec:
+  # Domain Configuration
+  domain: web
+  environment: prod
+  tenant: example-company
+  region: us-east-1
+  
+  # Network Configuration
+  cidrBlock: "10.100.0.0/16"
+  
+  # Kubernetes Configuration
+  kubernetesVersion: "1.28"
+  
+  # Node Group Configuration - Optimized for Web Applications
+  nodeGroups:
+    channel:
+      instanceTypes: ["t3a.medium", "t3a.large"]
+      minSize: 2
+      maxSize: 10
+      desiredSize: 3
+      capacityType: "ON_DEMAND"
+      
+    data:
+      instanceTypes: ["r6g.large", "r6g.xlarge"]
+      minSize: 1
+      maxSize: 5
+      desiredSize: 2
+      capacityType: "ON_DEMAND"
+      
+    logic:
+      instanceTypes: ["c6g.large", "c6g.xlarge"]
+      minSize: 1
+      maxSize: 8
+      desiredSize: 2
+      capacityType: "SPOT"
+      
+    observability:
+      instanceTypes: ["m6g.medium", "m6g.large"]
+      minSize: 1
+      maxSize: 3
+      desiredSize: 2
+      capacityType: "ON_DEMAND"
+      
+    security:
+      instanceTypes: ["t3a.small", "t3a.medium"]
+      minSize: 1
+      maxSize: 2
+      desiredSize: 1
+      capacityType: "ON_DEMAND"
+      
+  # Capacity Reservation
+  capacityReservation:
+    enabled: true
+    instanceCount: 5
+    instanceType: "t3a.large"
+    
+  # Performance Requirements
+  performance:
+    latencyRequirement: "100ms"
+    throughputRequirement: "10000rps"
+    placementStrategy: "spread"
+    
+  # Compliance Requirements
+  compliance:
+    - "gdpr"
+    - "soc2"
+    
+  # Cost Optimization
+  cost:
+    reservedInstances: true
+    spotInstances: true
+    gravitonOptimized: true
+    savingsPlans: true
+    
+  # Service Deployment Configuration
+  services:
+    channel:
+      - "frontend"
+      - "api-gateway"
+    data:
+      - "database"
+      - "cache"
+    logic:
+      - "worker"
+      - "processor"
+    observability:
+      - "monitoring"
+      - "logging"
+    security:
+      - "auth"
+      - "policy"

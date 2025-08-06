@@ -1,0 +1,497 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: xdomaincell
+  labels:
+    provider: aws
+    platform: prism
+    version: v1.0.0
+spec:
+  writeConnectionSecretsToNamespace: upbound-system
+  
+  compositeTypeRef:
+    apiVersion: platform.prism.io/v1alpha1
+    kind: XDomainCell
+    
+  resources:
+  # VPC for Domain Cell
+  - name: domain-vpc
+    base:
+      apiVersion: ec2.aws.upbound.io/v1beta1
+      kind: VPC
+      spec:
+        forProvider:
+          cidrBlock: "10.100.0.0/16"
+          enableDnsHostnames: true
+          enableDnsSupport: true
+          tags:
+            Name: "prism-domain-vpc"
+            Platform: "prism"
+    patches:
+    - type: PatchSet
+      patchSetName: domain-labels
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.domain
+      toFieldPath: spec.forProvider.tags.Domain
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.environment
+      toFieldPath: spec.forProvider.tags.Environment
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.cidrBlock
+      toFieldPath: spec.forProvider.cidrBlock
+      
+  # Internet Gateway
+  - name: internet-gateway
+    base:
+      apiVersion: ec2.aws.upbound.io/v1beta1
+      kind: InternetGateway
+      spec:
+        forProvider:
+          tags:
+            Name: "prism-igw"
+    patches:
+    - type: PatchSet
+      patchSetName: domain-labels
+    - type: FromCompositeFieldPath
+      fromFieldPath: status.atProvider.id
+      toFieldPath: spec.forProvider.vpcIdRef.name
+      fromFieldPath: metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-vpc"
+          
+  # Placement Group for Low Latency
+  - name: placement-group
+    base:
+      apiVersion: ec2.aws.upbound.io/v1beta1
+      kind: PlacementGroup
+      spec:
+        forProvider:
+          strategy: cluster
+          tags:
+            Name: "prism-placement-group"
+    patches:
+    - type: PatchSet
+      patchSetName: domain-labels
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.domain
+      toFieldPath: spec.forProvider.name
+      transforms:
+      - type: string
+        string:
+          fmt: "prism-%s-placement"
+          
+  # Purpose Subnets - Channel Tier
+  - name: channel-subnet
+    base:
+      apiVersion: ec2.aws.upbound.io/v1beta1
+      kind: Subnet
+      spec:
+        forProvider:
+          cidrBlock: "10.100.1.0/24"
+          mapPublicIpOnLaunch: true
+          tags:
+            Name: "channel-subnet"
+            Purpose: "channel"
+            Tier: "frontend"
+    patches:
+    - type: PatchSet
+      patchSetName: domain-labels
+    - type: PatchSet
+      patchSetName: subnet-patches
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.region
+      toFieldPath: spec.forProvider.availabilityZone
+      transforms:
+      - type: string
+        string:
+          fmt: "%sa"
+          
+  # Purpose Subnets - Data Tier
+  - name: data-subnet
+    base:
+      apiVersion: ec2.aws.upbound.io/v1beta1
+      kind: Subnet
+      spec:
+        forProvider:
+          cidrBlock: "10.100.2.0/24"
+          mapPublicIpOnLaunch: false
+          tags:
+            Name: "data-subnet"
+            Purpose: "data"
+            Tier: "backend"
+    patches:
+    - type: PatchSet
+      patchSetName: domain-labels
+    - type: PatchSet
+      patchSetName: subnet-patches
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.region
+      toFieldPath: spec.forProvider.availabilityZone
+      transforms:
+      - type: string
+        string:
+          fmt: "%sa"
+          
+  # Purpose Subnets - Logic Tier (AI/ML)
+  - name: logic-subnet
+    base:
+      apiVersion: ec2.aws.upbound.io/v1beta1
+      kind: Subnet
+      spec:
+        forProvider:
+          cidrBlock: "10.100.3.0/24"
+          mapPublicIpOnLaunch: false
+          tags:
+            Name: "logic-subnet"
+            Purpose: "logic"
+            Tier: "compute"
+            Accelerator: "gpu"
+    patches:
+    - type: PatchSet
+      patchSetName: domain-labels
+    - type: PatchSet
+      patchSetName: subnet-patches
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.region
+      toFieldPath: spec.forProvider.availabilityZone
+      transforms:
+      - type: string
+        string:
+          fmt: "%sb"
+          
+  # Purpose Subnets - Observability Tier
+  - name: observability-subnet
+    base:
+      apiVersion: ec2.aws.upbound.io/v1beta1
+      kind: Subnet
+      spec:
+        forProvider:
+          cidrBlock: "10.100.4.0/24"
+          mapPublicIpOnLaunch: false
+          tags:
+            Name: "observability-subnet"
+            Purpose: "observability"
+            Tier: "monitoring"
+    patches:
+    - type: PatchSet
+      patchSetName: domain-labels
+    - type: PatchSet
+      patchSetName: subnet-patches
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.region
+      toFieldPath: spec.forProvider.availabilityZone
+      transforms:
+      - type: string
+        string:
+          fmt: "%sc"
+          
+  # Purpose Subnets - Security Tier
+  - name: security-subnet
+    base:
+      apiVersion: ec2.aws.upbound.io/v1beta1
+      kind: Subnet
+      spec:
+        forProvider:
+          cidrBlock: "10.100.5.0/24"
+          mapPublicIpOnLaunch: false
+          tags:
+            Name: "security-subnet"
+            Purpose: "security"
+            Tier: "security"
+    patches:
+    - type: PatchSet
+      patchSetName: domain-labels
+    - type: PatchSet
+      patchSetName: subnet-patches
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.region
+      toFieldPath: spec.forProvider.availabilityZone
+      transforms:
+      - type: string
+        string:
+          fmt: "%sa"
+          
+  # EKS Cluster for Domain
+  - name: eks-cluster
+    base:
+      apiVersion: eks.aws.upbound.io/v1beta1
+      kind: Cluster
+      spec:
+        forProvider:
+          roleArnSelector:
+            matchLabels:
+              role: cluster
+          version: "1.28"
+          vpcConfig:
+          - endpointConfigPrivateAccess: true
+            endpointConfigPublicAccess: true
+            publicAccessCidrs:
+            - "0.0.0.0/0"
+          tags:
+            Name: "prism-eks"
+    patches:
+    - type: PatchSet
+      patchSetName: domain-labels
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.domain
+      toFieldPath: spec.forProvider.name
+      transforms:
+      - type: string
+        string:
+          fmt: "prism-%s-cluster"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.kubernetesVersion
+      toFieldPath: spec.forProvider.version
+    - type: ToCompositeFieldPath
+      fromFieldPath: status.atProvider.endpoint
+      toFieldPath: status.clusterEndpoint
+    - type: ToCompositeFieldPath
+      fromFieldPath: status.atProvider.certificateAuthorityData
+      toFieldPath: status.clusterCA
+      
+  # EKS Node Groups by Purpose
+  - name: channel-nodegroup
+    base:
+      apiVersion: eks.aws.upbound.io/v1beta1
+      kind: NodeGroup
+      spec:
+        forProvider:
+          capacityType: ON_DEMAND
+          instanceTypes:
+          - t3a.large
+          scalingConfig:
+          - desiredSize: 2
+            maxSize: 10
+            minSize: 1
+          tags:
+            Name: "channel-nodegroup"
+            Purpose: "channel"
+    patches:
+    - type: PatchSet
+      patchSetName: domain-labels
+    - type: PatchSet
+      patchSetName: nodegroup-patches
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.nodeGroups.channel.instanceTypes
+      toFieldPath: spec.forProvider.instanceTypes
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.nodeGroups.channel.minSize
+      toFieldPath: spec.forProvider.scalingConfig[0].minSize
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.nodeGroups.channel.maxSize
+      toFieldPath: spec.forProvider.scalingConfig[0].maxSize
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.nodeGroups.channel.desiredSize
+      toFieldPath: spec.forProvider.scalingConfig[0].desiredSize
+      
+  - name: data-nodegroup
+    base:
+      apiVersion: eks.aws.upbound.io/v1beta1
+      kind: NodeGroup
+      spec:
+        forProvider:
+          capacityType: ON_DEMAND
+          instanceTypes:
+          - r7g.xlarge
+          scalingConfig:
+          - desiredSize: 2
+            maxSize: 8
+            minSize: 1
+          tags:
+            Name: "data-nodegroup"
+            Purpose: "data"
+    patches:
+    - type: PatchSet
+      patchSetName: domain-labels
+    - type: PatchSet
+      patchSetName: nodegroup-patches
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.nodeGroups.data.instanceTypes
+      toFieldPath: spec.forProvider.instanceTypes
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.nodeGroups.data.minSize
+      toFieldPath: spec.forProvider.scalingConfig[0].minSize
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.nodeGroups.data.maxSize
+      toFieldPath: spec.forProvider.scalingConfig[0].maxSize
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.nodeGroups.data.desiredSize
+      toFieldPath: spec.forProvider.scalingConfig[0].desiredSize
+      
+  - name: logic-nodegroup
+    base:
+      apiVersion: eks.aws.upbound.io/v1beta1
+      kind: NodeGroup
+      spec:
+        forProvider:
+          capacityType: ON_DEMAND
+          instanceTypes:
+          - g5.2xlarge
+          scalingConfig:
+          - desiredSize: 1
+            maxSize: 5
+            minSize: 0
+          tags:
+            Name: "logic-nodegroup"
+            Purpose: "logic"
+            Accelerator: "gpu"
+          taints:
+          - effect: NO_SCHEDULE
+            key: nvidia.com/gpu
+            value: "true"
+    patches:
+    - type: PatchSet
+      patchSetName: domain-labels
+    - type: PatchSet
+      patchSetName: nodegroup-patches
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.nodeGroups.logic.instanceTypes
+      toFieldPath: spec.forProvider.instanceTypes
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.nodeGroups.logic.minSize
+      toFieldPath: spec.forProvider.scalingConfig[0].minSize
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.nodeGroups.logic.maxSize
+      toFieldPath: spec.forProvider.scalingConfig[0].maxSize
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.nodeGroups.logic.desiredSize
+      toFieldPath: spec.forProvider.scalingConfig[0].desiredSize
+      
+  # Security Groups
+  - name: channel-security-group
+    base:
+      apiVersion: ec2.aws.upbound.io/v1beta1
+      kind: SecurityGroup
+      spec:
+        forProvider:
+          description: "Channel tier security group"
+          tags:
+            Name: "channel-sg"
+            Purpose: "channel"
+    patches:
+    - type: PatchSet
+      patchSetName: domain-labels
+    - type: FromCompositeFieldPath
+      fromFieldPath: status.atProvider.id
+      toFieldPath: spec.forProvider.vpcIdRef.name
+      fromFieldPath: metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-vpc"
+          
+  # Capacity Reservation for Reserved Instances
+  - name: capacity-reservation
+    base:
+      apiVersion: ec2.aws.upbound.io/v1beta1
+      kind: CapacityReservation
+      spec:
+        forProvider:
+          instanceCount: 5
+          instancePlatform: "Linux/UNIX"
+          instanceType: "t3a.large"
+          tags:
+            Name: "prism-capacity-reservation"
+    patches:
+    - type: PatchSet
+      patchSetName: domain-labels
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.capacityReservation.enabled
+      toFieldPath: metadata.annotations["crossplane.io/external-name"]
+      transforms:
+      - type: string
+        string:
+          type: Convert
+          convert: "bool"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.region
+      toFieldPath: spec.forProvider.availabilityZone
+      transforms:
+      - type: string
+        string:
+          fmt: "%sa"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.capacityReservation.instanceCount
+      toFieldPath: spec.forProvider.instanceCount
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.capacityReservation.instanceType
+      toFieldPath: spec.forProvider.instanceType
+      
+  # Domain Namespace
+  - name: domain-namespace
+    base:
+      apiVersion: kubernetes.crossplane.io/v1alpha1
+      kind: Object
+      spec:
+        forProvider:
+          manifest:
+            apiVersion: v1
+            kind: Namespace
+            metadata:
+              name: domain-cell
+              labels:
+                platform.prism.io/domain: "default"
+                platform.prism.io/cell-type: "domain"
+                istio-injection: enabled
+            annotations:
+              platform.prism.io/created-by: "crossplane"
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.domain
+      toFieldPath: spec.forProvider.manifest.metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-cell"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.domain
+      toFieldPath: spec.forProvider.manifest.metadata.labels["platform.prism.io/domain"]
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.environment
+      toFieldPath: spec.forProvider.manifest.metadata.labels["platform.prism.io/environment"]
+      
+  patchSets:
+  - name: domain-labels
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.domain
+      toFieldPath: spec.forProvider.tags.Domain
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.environment
+      toFieldPath: spec.forProvider.tags.Environment
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenant
+      toFieldPath: spec.forProvider.tags.Tenant
+    - type: FromCompositeFieldPath
+      fromFieldPath: metadata.name
+      toFieldPath: spec.forProvider.tags.Cell
+      
+  - name: subnet-patches
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: status.atProvider.id
+      toFieldPath: spec.forProvider.vpcIdRef.name
+      fromFieldPath: metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-vpc"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenant
+      toFieldPath: spec.forProvider.tags.Tenant
+      
+  - name: nodegroup-patches
+    patches:
+    - type: FromCompositeFieldPath
+      fromFieldPath: status.atProvider.clusterName
+      toFieldPath: spec.forProvider.clusterNameRef.name
+      fromFieldPath: metadata.name
+      transforms:
+      - type: string
+        string:
+          fmt: "%s-cluster"
+    - type: FromCompositeFieldPath
+      fromFieldPath: spec.tenant
+      toFieldPath: spec.forProvider.tags.Tenant

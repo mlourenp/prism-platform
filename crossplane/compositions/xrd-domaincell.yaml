@@ -1,0 +1,340 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xdomaincells.platform.prism.io
+  labels:
+    platform: prism
+    version: v1.0.0
+spec:
+  group: platform.prism.io
+  names:
+    kind: XDomainCell
+    plural: xdomaincells
+  versions:
+  - name: v1alpha1
+    served: true
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              # Domain Configuration
+              domain:
+                type: string
+                description: "Domain name (e.g., web, api, data, ml, platform)"
+                enum:
+                - "web"
+                - "api"
+                - "data"
+                - "ml"
+                - "platform"
+                - "integration"
+                default: "platform"
+                
+              environment:
+                type: string
+                description: "Environment (dev, staging, prod)"
+                enum:
+                - "dev"
+                - "staging"
+                - "prod"
+                default: "prod"
+                
+              tenant:
+                type: string
+                description: "Tenant identifier"
+                
+              region:
+                type: string
+                description: "AWS region"
+                default: "us-east-1"
+                
+              # Network Configuration
+              cidrBlock:
+                type: string
+                description: "VPC CIDR block"
+                default: "10.100.0.0/16"
+                pattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$'
+                
+              # Kubernetes Configuration
+              kubernetesVersion:
+                type: string
+                description: "EKS cluster version"
+                default: "1.28"
+                
+              # Node Group Configuration
+              nodeGroups:
+                type: object
+                description: "Node group configurations by purpose"
+                properties:
+                  channel:
+                    type: object
+                    properties:
+                      instanceTypes:
+                        type: array
+                        items:
+                          type: string
+                        default: ["t3a.large", "t3a.xlarge"]
+                      minSize:
+                        type: integer
+                        default: 1
+                      maxSize:
+                        type: integer
+                        default: 10
+                      desiredSize:
+                        type: integer
+                        default: 2
+                      capacityType:
+                        type: string
+                        enum: ["ON_DEMAND", "SPOT"]
+                        default: "ON_DEMAND"
+                        
+                  data:
+                    type: object
+                    properties:
+                      instanceTypes:
+                        type: array
+                        items:
+                          type: string
+                        default: ["r7g.xlarge", "r7g.2xlarge"]
+                      minSize:
+                        type: integer
+                        default: 1
+                      maxSize:
+                        type: integer
+                        default: 8
+                      desiredSize:
+                        type: integer
+                        default: 2
+                      capacityType:
+                        type: string
+                        enum: ["ON_DEMAND", "SPOT"]
+                        default: "ON_DEMAND"
+                        
+                  logic:
+                    type: object
+                    properties:
+                      instanceTypes:
+                        type: array
+                        items:
+                          type: string
+                        default: ["g5.2xlarge", "g5.4xlarge"]
+                      minSize:
+                        type: integer
+                        default: 0
+                      maxSize:
+                        type: integer
+                        default: 5
+                      desiredSize:
+                        type: integer
+                        default: 1
+                      capacityType:
+                        type: string
+                        enum: ["ON_DEMAND", "SPOT"]
+                        default: "ON_DEMAND"
+                        
+                  observability:
+                    type: object
+                    properties:
+                      instanceTypes:
+                        type: array
+                        items:
+                          type: string
+                        default: ["m6g.large", "m6g.xlarge"]
+                      minSize:
+                        type: integer
+                        default: 1
+                      maxSize:
+                        type: integer
+                        default: 6
+                      desiredSize:
+                        type: integer
+                        default: 2
+                      capacityType:
+                        type: string
+                        enum: ["ON_DEMAND", "SPOT"]
+                        default: "ON_DEMAND"
+                        
+                  security:
+                    type: object
+                    properties:
+                      instanceTypes:
+                        type: array
+                        items:
+                          type: string
+                        default: ["c6g.large", "c6g.xlarge"]
+                      minSize:
+                        type: integer
+                        default: 1
+                      maxSize:
+                        type: integer
+                        default: 4
+                      desiredSize:
+                        type: integer
+                        default: 2
+                      capacityType:
+                        type: string
+                        enum: ["ON_DEMAND", "SPOT"]
+                        default: "ON_DEMAND"
+                        
+              # Capacity Reservation
+              capacityReservation:
+                type: object
+                description: "Reserved instance configuration"
+                properties:
+                  enabled:
+                    type: boolean
+                    default: false
+                  instanceCount:
+                    type: integer
+                    default: 5
+                  instanceType:
+                    type: string
+                    default: "t3a.large"
+                    
+              # Performance Requirements
+              performance:
+                type: object
+                properties:
+                  latencyRequirement:
+                    type: string
+                    description: "Target latency (e.g., 50ms, 10ms)"
+                    default: "50ms"
+                  throughputRequirement:
+                    type: string
+                    description: "Target throughput (e.g., 10000rps)"
+                    default: "5000rps"
+                  placementStrategy:
+                    type: string
+                    enum: ["cluster", "partition", "spread"]
+                    default: "cluster"
+                    
+              # Compliance Requirements
+              compliance:
+                type: array
+                items:
+                  type: string
+                  enum:
+                  - "basel"
+                  - "sox"
+                  - "pci-dss"
+                  - "gdpr"
+                  - "hipaa"
+                  - "finra"
+                  - "mifid"
+                  - "soc2"
+                default: []
+                
+              # Cost Optimization
+              cost:
+                type: object
+                properties:
+                  reservedInstances:
+                    type: boolean
+                    default: true
+                  spotInstances:
+                    type: boolean
+                    default: false
+                  gravitonOptimized:
+                    type: boolean
+                    default: true
+                  savingsPlans:
+                    type: boolean
+                    default: true
+                    
+              # Service Configuration
+              services:
+                type: object
+                description: "Services to deploy in this cell"
+                properties:
+                  channel:
+                    type: array
+                    items:
+                      type: string
+                    default: ["frontend", "api-gateway"]
+                  data:
+                    type: array
+                    items:
+                      type: string
+                    default: ["database", "cache"]
+                  logic:
+                    type: array
+                    items:
+                      type: string
+                    default: ["worker", "processor"]
+                  observability:
+                    type: array
+                    items:
+                      type: string
+                    default: ["monitoring", "logging"]
+                  security:
+                    type: array
+                    items:
+                      type: string
+                    default: ["auth", "policy"]
+                    
+          status:
+            type: object
+            properties:
+              clusterEndpoint:
+                type: string
+                description: "EKS cluster endpoint"
+              clusterCA:
+                type: string
+                description: "EKS cluster certificate authority"
+              vpcId:
+                type: string
+                description: "VPC ID"
+              subnets:
+                type: object
+                properties:
+                  channel:
+                    type: string
+                  data:
+                    type: string
+                  logic:
+                    type: string
+                  observability:
+                    type: string
+                  security:
+                    type: string
+              nodeGroups:
+                type: object
+                properties:
+                  channel:
+                    type: string
+                  data:
+                    type: string
+                  logic:
+                    type: string
+                  observability:
+                    type: string
+                  security:
+                    type: string
+              ready:
+                type: boolean
+                description: "Cell readiness status"
+                
+    additionalPrinterColumns:
+    - name: Domain
+      type: string
+      jsonPath: .spec.domain
+    - name: Environment
+      type: string
+      jsonPath: .spec.environment
+    - name: Region
+      type: string
+      jsonPath: .spec.region
+    - name: Ready
+      type: boolean
+      jsonPath: .status.ready
+    - name: Age
+      type: date
+      jsonPath: .metadata.creationTimestamp
+      
+  claimNames:
+    kind: DomainCellClaim
+    plural: domaincellclaims
